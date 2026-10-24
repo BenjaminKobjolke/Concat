@@ -12,7 +12,6 @@ use concat_project::model::MissingMedia;
 use slint::VecModel;
 
 use crate::i18n::t;
-use crate::platform;
 use crate::studio::Studio;
 use crate::ui::{MissingMediaItem, RelinkData};
 
@@ -55,12 +54,9 @@ impl RelinkPane {
             // message of its own; see `host::after_dialog`.
             RelinkMsg::RelinkAll => {
                 let title = t("relink.selectFolderContainingMedia");
-                crate::host::after_dialog(
-                    move || platform::pick_folder(&title, ""),
-                    |studio, _, _, folder| {
-                        studio.handle(crate::panes::Msg::Relink(RelinkMsg::RelinkIn(folder)));
-                    },
-                );
+                crate::host::pick_folder_then(title, String::new(), |studio, _, _, folder| {
+                    studio.handle(crate::panes::Msg::Relink(RelinkMsg::RelinkIn(folder)));
+                });
             }
             RelinkMsg::RelinkIn(folder) => self.relink_in(studio, folder),
             RelinkMsg::Dismiss => self.dismiss(),

@@ -727,6 +727,44 @@ pub fn pick_folder(title: &str, start: &str) -> Option<PathBuf> {
     }
 }
 
+/// What a phone does when asked for a folder: shows the system's folder
+/// picker and calls back, later, with the folder's path - None for
+/// nothing. Installed by the phone's own crate; see
+/// [`install_folder_picker`]. A phone without one answers None at once.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub type FolderPicker = Box<dyn Fn(Box<dyn FnOnce(Option<PathBuf>) + Send>) + Send + Sync>;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+static FOLDER_PICKER: std::sync::OnceLock<FolderPicker> = std::sync::OnceLock::new();
+
+/// Installs the picker a phone answers [`pick_folder_async`] with. Once;
+/// a second call is ignored.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn install_folder_picker(picker: FolderPicker) {
+    let _ = FOLDER_PICKER.set(picker);
+}
+
+/// [`pick_folder`] for a phone, whose picker is another screen: this
+/// returns at once and `on_picked` comes when it is dismissed, from
+/// whichever thread the phone answers on. On a desktop the dialog blocks
+/// and `on_picked` runs before this returns.
+pub fn pick_folder_async(
+    title: &str,
+    start: &str,
+    on_picked: impl FnOnce(Option<PathBuf>) + Send + 'static,
+) {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    on_picked(pick_folder(title, start));
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = (title, start);
+        match FOLDER_PICKER.get() {
+            Some(picker) => picker(Box::new(on_picked)),
+            None => on_picked(None),
+        }
+    }
+}
+
 /// Where a folder dialog asked to start at `start` can open: `start`
 /// itself, or the nearest folder above it that exists. A new project's
 /// default, `<Desktop>/Concat`, is not made until the first project is, and

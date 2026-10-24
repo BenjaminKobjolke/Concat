@@ -289,14 +289,11 @@ impl StartPane {
             StartMsg::Browse => {
                 let title = t("start.whereShouldProjectFolder");
                 let current = self.location.clone();
-                crate::host::after_dialog(
-                    move || platform::pick_folder(&title, &current),
-                    |studio, _, _, folder| {
-                        studio.handle(crate::panes::Msg::Start(StartMsg::FolderChosen(
-                            folder.to_string_lossy().into_owned(),
-                        )));
-                    },
-                );
+                crate::host::pick_folder_then(title, current, |studio, _, _, folder| {
+                    studio.handle(crate::panes::Msg::Start(StartMsg::FolderChosen(
+                        folder.to_string_lossy().into_owned(),
+                    )));
+                });
             }
             StartMsg::FolderChosen(folder) => self.location = folder,
             StartMsg::Create => self.create(studio),
@@ -441,16 +438,13 @@ impl StartPane {
     ///
     /// The picker runs with the studio unborrowed, as Browse's does, and
     /// the folder comes back as [`StartMsg::OpenChosen`]; see
-    /// `host::after_dialog`.
+    /// `host::pick_folder_then`.
     fn open(&self) {
         let title = t("start.openAProject");
         let current = self.location.clone();
-        crate::host::after_dialog(
-            move || platform::pick_folder(&title, &current),
-            |studio, _, _, folder| {
-                studio.handle(crate::panes::Msg::Start(StartMsg::OpenChosen(folder)));
-            },
-        );
+        crate::host::pick_folder_then(title, current, |studio, _, _, folder| {
+            studio.handle(crate::panes::Msg::Start(StartMsg::OpenChosen(folder)));
+        });
     }
 
     /// The folder Open was answered with: checked, then opened.

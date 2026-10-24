@@ -189,6 +189,10 @@ export component App inherits Window {
     /// strip, no dock - and the launch screen carries its own verbs, as it
     /// does whenever it is narrow. Set once from Rust; see platform::phone.
     in property <bool> phone;
+    /// The platform can be asked for a folder: Open and the new project's
+    /// location are offered. Every platform but iOS; see
+    /// platform::pick_folder_async.
+    in property <bool> can-pick-folder;
     /// A sheet with pages of its own is the whole window, inside its safe
     /// area, on a phone and in any window too narrow for it to float as a
     /// card with room around it.
@@ -608,6 +612,7 @@ export component App inherits Window {
                 sort: root.start.sort;
                 busy: root.start.busy;
                 phone: root.phone;
+                can-pick-folder: root.can-pick-folder;
                 version: root.app-version;
                 can-drop: root.can-drop;
 
@@ -785,7 +790,7 @@ export component App inherits Window {
         width: root.width;
         height: root.height;
         data: root.start;
-        phone: root.phone;
+        can-pick-folder: root.can-pick-folder;
         aspects: root.start-aspects;
         sizes: root.start-sizes;
         rates: root.start-rates;

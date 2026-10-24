@@ -217,27 +217,53 @@ mod picker {
     /// The pick in flight, waiting for Java to answer.
     static PENDING: Mutex<Option<Picked>> = Mutex::new(None);
 
-    /// Hands the window's crate a picker that runs on this activity.
+    /// Hands the window's crate a file picker and a folder picker that run
+    /// on this activity. Both answer through `filesPicked`; a folder is
+    /// the one path in the list.
     pub fn install(app: &AndroidApp) {
-        let app = app.clone();
+        let files = app.clone();
         concat::install_file_picker(Box::new(move |kinds, on_picked| {
-            let previous = PENDING
-                .lock()
-                .map(|mut slot| slot.replace(on_picked))
-                .ok()
-                .flatten();
-            if let Some(previous) = previous {
-                // A pick was already up; the one that asked first is told
-                // it got nothing rather than left waiting for ever.
-                previous(Vec::new());
-            }
-            if let Err(error) = pick(&app, &kinds) {
-                log::error!("could not show the document picker: {error}");
-                if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
-                    pending(Vec::new());
-                }
-            }
+            ask(on_picked, || pick(&files, &kinds));
         }));
+        let folders = app.clone();
+        concat::install_folder_picker(Box::new(move |on_picked| {
+            ask(
+                Box::new(move |paths: Vec<PathBuf>| on_picked(paths.into_iter().next())),
+                || pick_folder(&folders),
+            );
+        }));
+    }
+
+    /// Waits for Java's answer to `show` with `on_picked`.
+    fn ask(on_picked: Picked, show: impl FnOnce() -> jni::errors::Result<()>) {
+        let previous = PENDING
+            .lock()
+            .map(|mut slot| slot.replace(on_picked))
+            .ok()
+            .flatten();
+        if let Some(previous) = previous {
+            // A pick was already up; the one that asked first is told
+            // it got nothing rather than left waiting for ever.
+            previous(Vec::new());
+        }
+        if let Err(error) = show() {
+            log::error!("could not show the document picker: {error}");
+            if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
+                pending(Vec::new());
+            }
+        }
+    }
+
+    fn pick_folder(app: &AndroidApp) -> jni::errors::Result<()> {
+        super::java::with_class(app, |env, activity, class| {
+            env.call_static_method(
+                class,
+                jni_str!("pickFolder"),
+                jni_sig!("(Landroid/app/Activity;)V"),
+                &[activity.into()],
+            )?;
+            Ok(())
+        })
     }
 
     fn pick(app: &AndroidApp, kinds: &concat::PickKinds) -> jni::errors::Result<()> {

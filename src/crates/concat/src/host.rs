@@ -402,6 +402,28 @@ pub fn pick_files_then(
     }
 }
 
+/// [`after_dialog`] for a folder, on every platform, as
+/// [`pick_files_then`] is for files: a phone's picker answers later,
+/// through [`on_ui`]. `then` is not called for a picker dismissed with
+/// nothing chosen.
+pub fn pick_folder_then(
+    title: String,
+    start: String,
+    then: impl FnOnce(&mut Studio, &App, &Models, std::path::PathBuf) + Send + 'static,
+) {
+    if cfg!(any(target_os = "android", target_os = "ios")) {
+        let _ = slint::invoke_from_event_loop(move || {
+            crate::platform::pick_folder_async(&title, &start, move |folder| {
+                if let Some(folder) = folder {
+                    on_ui(move |studio, app, models| then(studio, app, models, folder));
+                }
+            });
+        });
+    } else {
+        after_dialog(move || crate::platform::pick_folder(&title, &start), then);
+    }
+}
+
 fn on_ui_gated(epoch: Option<u64>, body: impl FnOnce(&mut Studio, &App, &Models) + Send + 'static) {
     let _ = slint::invoke_from_event_loop(move || {
         Shell::with(|shell, app| {

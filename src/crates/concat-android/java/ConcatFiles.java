@@ -15,7 +15,9 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.provider.OpenableColumns;
 import android.util.Log;
 
@@ -58,6 +60,7 @@ import java.util.List;
 public class ConcatFiles extends Fragment {
     private static final int REQUEST_PICK = 0xC0C4;
     private static final int REQUEST_MICROPHONE = 0xC0C5;
+    private static final int REQUEST_FOLDER = 0xC0C6;
     private static final String TAG = "concat-files";
 
     /**
@@ -241,8 +244,89 @@ public class ConcatFiles extends Fragment {
         });
     }
 
+    /**
+     * Shows the system's folder picker, and answers through
+     * {@link #filesPicked} with the folder's path, or with nothing. The
+     * engine reads by path, so the app needs "All files access" to read
+     * the folder at all: without it the system's screen for it is put up
+     * instead and nothing comes back - Open again once it is granted.
+     */
+    public static void pickFolder(final Activity activity) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                // shortcut: before Android 11 a path outside the app's folder
+                // needs WRITE_EXTERNAL_STORAGE, never asked here; ask it if
+                // Android 8-10 phones should open shared folders.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                        && !Environment.isExternalStorageManager()) {
+                    try {
+                        activity.startActivity(new Intent(
+                                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                Uri.parse("package:" + activity.getPackageName())));
+                    } catch (Exception e) {
+                        Log.w(TAG, "could not ask for all files access", e);
+                    }
+                    filesPicked(new String[0]);
+                    return;
+                }
+                ConcatFiles fragment = new ConcatFiles();
+                activity.getFragmentManager()
+                        .beginTransaction()
+                        .add(fragment, TAG)
+                        .commitAllowingStateLoss();
+                activity.getFragmentManager().executePendingTransactions();
+                try {
+                    fragment.startActivityForResult(
+                            new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQUEST_FOLDER);
+                } catch (Exception e) {
+                    fragment.folderDone(null);
+                }
+            }
+        });
+    }
+
+    /**
+     * The path of the folder a tree URI names: "primary:Syncthing/x" is
+     * the phone's own storage, "1234-ABCD:x" a card's. Null for a provider
+     * that is not storage on the phone - a cloud drive - which has no path.
+     */
+    static String folderPath(Uri tree) {
+        if (!"com.android.externalstorage.documents".equals(tree.getAuthority())) {
+            return null;
+        }
+        String id = DocumentsContract.getTreeDocumentId(tree);
+        int colon = id.indexOf(':');
+        if (colon < 0) {
+            return null;
+        }
+        String volume = id.substring(0, colon);
+        String rest = id.substring(colon + 1);
+        String root = "primary".equalsIgnoreCase(volume)
+                ? Environment.getExternalStorageDirectory().getAbsolutePath()
+                : "/storage/" + volume;
+        return rest.isEmpty() ? root : root + "/" + rest;
+    }
+
+    /** Reports the picked folder, or none; then the fragment goes. */
+    private void folderDone(Uri tree) {
+        try {
+            getFragmentManager().beginTransaction().remove(this).commitAllowingStateLoss();
+        } catch (Exception ignored) {
+        }
+        String path = tree == null ? null : folderPath(tree);
+        if (tree != null && path == null) {
+            Log.w(TAG, "no path for the picked folder " + tree);
+        }
+        filesPicked(path == null ? new String[0] : new String[] {path});
+    }
+
     @Override
     public void onActivityResult(int request, int result, Intent data) {
+        if (request == REQUEST_FOLDER) {
+            folderDone(result == Activity.RESULT_OK && data != null ? data.getData() : null);
+            return;
+        }
         if (request != REQUEST_PICK) {
             return;
         }

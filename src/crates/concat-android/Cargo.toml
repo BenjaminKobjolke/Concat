@@ -62,6 +62,12 @@ name = "android.permission.INTERNET"
 [[package.metadata.android.uses_permission]]
 name = "android.permission.RECORD_AUDIO"
 
+# Projects in any folder of the phone's storage - a Syncthing folder, say -
+# opened by path as on a desk. Granted on the system's "All files access"
+# screen, which ConcatFiles.pickFolder sends the person to.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
 [package.metadata.android.application]
 label = "Concat"
 icon = "@mipmap/ic_launcher"

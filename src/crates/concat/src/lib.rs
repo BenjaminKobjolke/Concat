@@ -52,7 +52,8 @@ mod platform;
 /// `platform::publish_export`.
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{
-    ExportPublisher, FilePicker, PickKinds, install_export_publisher, install_file_picker,
+    ExportPublisher, FilePicker, FolderPicker, PickKinds, install_export_publisher,
+    install_file_picker, install_folder_picker,
 };
 #[cfg(target_os = "android")]
 pub use platform::{LinkOpener, install_link_opener};
@@ -307,6 +308,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // the playhead at their middle; the strip and the dock are the desk's.
     let phone = platform::phone();
     app.set_phone(phone);
+    app.set_can_pick_folder(cfg!(not(target_os = "ios")));
     // The launch screen's version line, and whether its drop zone is
     // offered: a drag in from the system is a desk's (see platform.rs).
     app.set_app_version(env!("CARGO_PKG_VERSION").into());
