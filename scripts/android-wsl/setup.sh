@@ -15,8 +15,9 @@
 set -euo pipefail
 
 win_repo=$(cd "$(dirname "$0")/../.." && pwd)
-toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' "$win_repo/src/rust-toolchain.toml")
-ndk_version=$(sed -n 's/.*ndkVersion = "\(.*\)"/\1/p' "$win_repo/android-native/app/build.gradle.kts")
+# `.*` after the closing quote drops the CR the Windows checkout's CRLF lines carry.
+toolchain=$(sed -n 's/^channel = "\([^"]*\)".*/\1/p' "$win_repo/src/rust-toolchain.toml")
+ndk_version=$(sed -n 's/.*ndkVersion = "\([^"]*\)".*/\1/p' "$win_repo/android-native/app/build.gradle.kts")
 
 # Rust, the pinned toolchain, plus the phone target.
 if [ ! -x ~/.cargo/bin/rustup ]; then
