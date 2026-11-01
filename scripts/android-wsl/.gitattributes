@@ -1,0 +1,2 @@
+# Run by bash in WSL straight from the Windows checkout.
+*.sh text eol=lf
