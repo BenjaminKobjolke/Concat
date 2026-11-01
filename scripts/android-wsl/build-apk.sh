@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the release APK in WSL (after setup.sh): pulls the Windows checkout's
-# committed state into ~/Concat, builds, and copies the APK next to the
-# Windows checkout as ../Concat-apk/Concat.apk. Uncommitted changes are not built.
+# committed state into ~/Concat, builds, and copies the APK into the Windows
+# checkout as build/Concat.apk (git-ignored). Uncommitted changes are not built.
 set -euo pipefail
 
 win_repo=$(cd "$(dirname "$0")/../.." && pwd)
@@ -21,7 +21,7 @@ eval "$(scripts/mobile-env.sh aarch64-linux-android)"
 export RUSTFLAGS="$RUSTFLAGS -A missing_docs"
 cargo apk build --release -p concat-android --target aarch64-linux-android
 
-out=$win_repo/../Concat-apk
+out=$win_repo/build
 mkdir -p "$out"
 cp target/release/apk/Concat.apk "$out/"
 echo "APK: $(wslpath -w "$out/Concat.apk")"
