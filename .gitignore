@@ -61,3 +61,10 @@ desktop.ini
 
 # Android APK from scripts/android-wsl/build-apk.sh
 /build/
+
+# Working files of external tools (tickets watcher, Claude)
+/tickets/
+.claude/
+PLAN.md
+HANDOFF.md
+/PLAN_*.md
