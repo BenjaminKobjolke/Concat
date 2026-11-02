@@ -1,0 +1,25 @@
+# Keep the application and its first-party build scripts in the graph.
+# The Rust engine and Android integration are under src/ and android-native/.
+
+# Repository metadata, generated content, documentation, and other non-source folders.
+/.git/
+/.claude/
+/.github/
+/assets/
+/audit/
+/build/
+/docs/
+/models/
+/tickets/
+/tools/
+
+# Common top-level dependency, test, migration, and build folders.
+/test/
+/tests/
+/vendor/
+/packages/
+/migrations/
+/target/
+/dist/
+/node_modules/
+/coverage/
