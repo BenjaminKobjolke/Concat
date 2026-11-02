@@ -64,6 +64,7 @@ desktop.ini
 
 # Working files of external tools (tickets watcher, Claude)
 /tickets/
+/tools/tickets-watcher.json
 .claude/
 PLAN.md
 HANDOFF.md
