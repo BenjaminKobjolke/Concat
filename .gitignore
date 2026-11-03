@@ -69,3 +69,5 @@ desktop.ini
 PLAN.md
 HANDOFF.md
 /PLAN_*.md
+# Generated analyzer reports and cache
+/code_analysis_results/
