@@ -35,7 +35,7 @@ set "GRAPHIFY=graphify"
 where graphify >nul 2>nul
 if errorlevel 1 (
   if exist "graphify-out\.graphify_python" (
-    set /p GPY=<graphify-out\.graphify_python
+    for /f "usebackq delims=" %%G in ("graphify-out\.graphify_python") do set "GPY=%%G"
     set "GRAPHIFY=!GPY:python.exe=graphify.exe!"
   ) else (
     echo ERROR: graphify not on PATH and no graphify-out\.graphify_python found.
@@ -61,7 +61,7 @@ if not exist "graphify-out\graph.json" (
 )
 REM Report directed flag + node count of the LIVE root graph (should be directed:True).
 if exist "graphify-out\.graphify_python" (
-  set /p GPY2=<graphify-out\.graphify_python
+  for /f "usebackq delims=" %%G in ("graphify-out\.graphify_python") do set "GPY2=%%G"
   "!GPY2!" -c "import json;d=json.load(open('graphify-out/graph.json',encoding='utf-8'));print('directed:',d.get('directed'),'  nodes:',len(d.get('nodes',[])))"
   if errorlevel 1 (
     echo ERROR: graph metadata check failed.
@@ -84,4 +84,4 @@ if errorlevel 1 (
 )
 
 popd
-endlocal
+endlocal & exit /b 0
