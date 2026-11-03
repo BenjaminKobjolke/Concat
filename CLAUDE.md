@@ -36,3 +36,19 @@ they are intentionally referenced, not imported.
 - The Cargo workspace root is `src/`. Run `cargo` commands from `src/`, not the repo root.
 - graphify: this project's code directory is `.`. The scan scope is set by the root `.graphifyignore` (todo #14335). Never build the graph from a different root.
 - No Rust rule set ships yet (requested in Coding Rules draft #14342). Re-run `/coding-rules:apply` once it ships.
+
+## Post-Implementation Code Analysis
+
+After any feature, finished plan, or bug fix, run the changed-files analyzer and fix reported
+issues before considering the work complete:
+
+```bash
+powershell -Command "cd 'D:\GIT\BenjaminKobjolke\Concat'; cmd /c '.\tools\analyze_changed_and_new_files.bat'"
+```
+
+This reports only changed Kotlin files. The CLI code analyzer does not support Rust, so Rust
+source remains covered by the Cargo checks in `tools/tickets-watcher.json`.
+
+For a whole-project Kotlin audit, run `tools\analyze_code.bat` instead. Use it for explicit
+audits, before a release or merge, and after refactors that touch shared Kotlin code. Results go
+to `code_analysis_results/` as per-rule CSV files; a missing CSV means that rule found nothing.
