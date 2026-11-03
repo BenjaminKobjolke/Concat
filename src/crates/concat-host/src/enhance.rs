@@ -166,12 +166,16 @@ pub fn target_for(
     media.hash(&mut hasher);
     meta.len().hash(&mut hasher);
     if let Some((start, duration)) = span {
-        ((start * 1000.0).round() as u64, (duration * 1000.0).round() as u64).hash(&mut hasher);
+        (
+            (start * 1000.0).round() as u64,
+            (duration * 1000.0).round() as u64,
+        )
+            .hash(&mut hasher);
     }
     if let Ok(modified) = meta.modified()
         && let Ok(since) = modified.duration_since(std::time::UNIX_EPOCH)
     {
-        since.as_secs().hash(&mut hasher);
+        since.as_nanos().hash(&mut hasher);
     }
     let extension = if still { "png" } else { "mp4" };
     let percent = strength_percent(strength);
@@ -890,7 +894,21 @@ mod tests {
             target_for(&project, &media, 2, 0.750_001, false, None),
             Some(blended.clone())
         );
-        assert_ne!(target_for(&project, &media, 4, 0.75, false, None), Some(blended));
+        assert_ne!(
+            target_for(&project, &media, 4, 0.75, false, None),
+            Some(blended)
+        );
+        let before_same_size_edit = target_for(&project, &media, 2, 1.0, false, None);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&media, b"not really, but longes").expect("same-size edit");
+        assert_eq!(
+            std::fs::metadata(&media).unwrap().len(),
+            b"not really, but longer".len() as u64
+        );
+        assert_ne!(
+            target_for(&project, &media, 2, 1.0, false, None),
+            before_same_size_edit
+        );
         // A file with different bytes is a different copy.
         std::fs::write(&media, b"not really, but longer").expect("write");
         assert_ne!(target_for(&project, &media, 2, 1.0, false, None), Some(two));
