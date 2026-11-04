@@ -1037,10 +1037,9 @@ impl ReaderPool {
     /// dragging backwards paid it on every step (#472). Nearest instead:
     ///
     /// - the frame itself, when it is cached;
-    /// - a cached frame closer to it than either keyframe around it is;
-    /// - else the nearer of those two keyframes, decoded on its own by a
-    ///   reader that reads keyframes only - one decode, wherever the scrub
-    ///   goes and whichever way.
+    /// - a cached frame before it, within the preceding keyframe span;
+    /// - else the keyframe at or before it, decoded on its own by a reader
+    ///   that reads keyframes only - one decode, wherever the scrub goes.
     ///
     /// Inexact answers are cached under their own frames only, never under
     /// the instant asked for, so the exact frame asked for once the
@@ -1110,28 +1109,23 @@ impl ReaderPool {
         .into_iter()
         .flatten()
         .min()
-        .unwrap_or_else(|| (rate.fps().ceil() as i64).max(1));
+        .unwrap_or_else(|| rate.fps().ceil().max(1));
         if let Ok(cache) = self.sources.lock() {
             let mut near = key.clone();
             for step in 1..reach {
-                for index in [target - step, target + step] {
-                    near.index = index;
-                    if index >= 0 && cache.holds(&near) {
-                        drop(cache);
-                        return self.serve(request, &facts, near, false);
-                    }
+                near.index = target - step;
+                if near.index >= 0 && cache.holds(&near) {
+                    drop(cache);
+                    return self.serve(request, &facts, near, false);
                 }
             }
         }
-        // The nearer keyframe, sought by a time between it and the next
+        // The earlier keyframe, sought by a time between it and the next
         // one: the index may stamp a keyframe at its decode time, a frame
         // or two before its picture's, and a seek to exactly that would
-        // land short and go back a whole group to check.
-        let keyframe = match (before, next) {
-            (Some(before), Some(next)) if next.1 - target < target - before.1 => Some(next),
-            (Some(before), _) => Some(before),
-            (None, next) => next,
-        };
+        // land short and go back a whole group to check. If the index has
+        // no earlier keyframe, the first one is the only available answer.
+        let keyframe = before.or(next);
         let seek = match keyframe {
             Some((at, _)) => {
                 let from = facts.keyframes[at];
@@ -2229,6 +2223,50 @@ pub(crate) mod tests {
             pool.frame_nearest(&at(72)).expect("decodes").exact,
             "a keyframe is exact"
         );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A cached frame after the requested instant cannot be the answer to
+    /// a scrub. The paused request that follows must still decode the exact
+    /// frame under the pointer, rather than reusing that future frame.
+    #[test]
+    fn a_scrub_never_shows_a_cached_frame_from_later() {
+        let path = counting_video("nearest-past", 64, 120);
+        let pool = ReaderPool::new(64 * 1024 * 1024, 4);
+        let at = |index| {
+            FrameRequest::new(&path, FrameRate::THIRTY.time_of_frame(index), 64, 64)
+                .at_any_size(true)
+        };
+        let frame_of = |frame: &Frame| i64::from(frame.pixel(32, 32).expect("inside")[0]) / 2;
+
+        let future = pool.frame(&at(71)).expect("cache a later frame");
+        // Make the exact walk too slow, so this exercises the cached-frame
+        // choice made for an inexact scrub.
+        pool.pace
+            .lock()
+            .expect("pace lock")
+            .insert(path.clone(), 1.0);
+
+        let scrub = pool.frame_nearest(&at(69)).expect("scrubs");
+        assert!(!scrub.exact, "the long exact walk is avoided");
+        assert!(
+            frame_of(&scrub.frame) <= 69,
+            "scrub showed later frame {}",
+            frame_of(&scrub.frame)
+        );
+        assert!(!Arc::ptr_eq(&scrub.frame, &future));
+
+        let exact = pool.frame(&at(69)).expect("the paused frame is exact");
+        assert!(
+            (68..=70).contains(&frame_of(&exact)),
+            "frame {}",
+            frame_of(&exact)
+        );
+        let settled = pool
+            .frame_nearest(&at(69))
+            .expect("the exact result is cached");
+        assert!(settled.exact);
+        assert!(Arc::ptr_eq(&settled.frame, &exact));
         let _ = std::fs::remove_file(&path);
     }
 
