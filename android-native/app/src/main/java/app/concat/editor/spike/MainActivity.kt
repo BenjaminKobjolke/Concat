@@ -5,33 +5,16 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
-import android.view.SurfaceHolder
-import android.view.SurfaceView
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -39,28 +22,19 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import java.io.File
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import uniffi.concat_mobile.ClipView
 import uniffi.concat_mobile.Engine
 import uniffi.concat_mobile.Stats
 
-private const val TAG = "concat-spike-ui"
+internal const val TAG = "concat-spike-ui"
 
 class MainActivity : ComponentActivity() {
     private lateinit var engine: Engine
@@ -81,7 +55,7 @@ class MainActivity : ComponentActivity() {
         val mode = intent.getStringExtra("mode") ?: "vulkan"
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                Editor(engine, importPath, bench, mode, ::copyIn)
+                Editor(EditorSession(engine, importPath, bench, mode, ::copyIn))
             }
         }
     }
@@ -101,24 +75,16 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun seconds(value: Double) = "%.2f".format(value)
-
 @Composable
-private fun Editor(
-    engine: Engine,
-    importPath: String?,
-    bench: Boolean,
-    initialMode: String,
-    copyIn: (Uri) -> File,
-) {
-    val scope = rememberCoroutineScope()
+private fun Editor(session: EditorSession) {
+    val engine = session.engine
     var clips by remember { mutableStateOf(engine.clips()) }
     var duration by remember { mutableStateOf(engine.duration()) }
     var video by remember { mutableStateOf(engine.video()) }
     var position by remember { mutableStateOf(0.0) }
     var playing by remember { mutableStateOf(false) }
     var stats by remember { mutableStateOf(Stats("", 0u, 0.0, 0.0, 0.0, 0u, 0.0, 0.0, 0.0, 0u, 0.0, "")) }
-    var mode by remember { mutableStateOf(initialMode) }
+    var mode by remember { mutableStateOf(session.initialMode) }
     var message by remember { mutableStateOf("") }
     var scrubbing by remember { mutableStateOf(false) }
 
@@ -126,27 +92,6 @@ private fun Editor(
         clips = engine.clips()
         duration = engine.duration()
         video = engine.video()
-    }
-
-    suspend fun importFile(file: File) {
-        val started = SystemClock.elapsedRealtime()
-        try {
-            withContext(Dispatchers.IO) { engine.importVideo(file.absolutePath) }
-            refresh()
-            message = "imported ${file.name} in ${SystemClock.elapsedRealtime() - started} ms"
-        } catch (error: Exception) {
-            message = "import failed: ${error.message}"
-        }
-        Log.i(TAG, message)
-    }
-
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) scope.launch {
-            val started = SystemClock.elapsedRealtime()
-            val file = withContext(Dispatchers.IO) { copyIn(uri) }
-            Log.i(TAG, "copied ${file.name} (${file.length() / 1024} KB) in ${SystemClock.elapsedRealtime() - started} ms")
-            importFile(file)
-        }
     }
 
     // The playhead and the numbers, read from the engine at the display's pace.
@@ -159,59 +104,17 @@ private fun Editor(
         }
     }
 
-    LaunchedEffect(importPath, bench) {
-        if (importPath != null && clips.isEmpty()) importFile(File(importPath))
-        if (bench) runBench(engine)
-    }
-
     Column(
         Modifier.fillMaxSize().background(Color(0xFF111111)).safeDrawingPadding().padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        val aspect = if (video.height > 0u) video.width.toFloat() / video.height.toFloat() else 9f / 16f
-        Box(
-            Modifier.fillMaxWidth().weight(1f).background(Color.Black),
-            contentAlignment = Alignment.Center,
-        ) {
-            // A new SurfaceView for a new renderer: a window that has had a
-            // GPU API connected to it cannot be locked by the CPU path.
-            key(mode) {
-                AndroidView(
-                    modifier = Modifier.aspectRatio(aspect, matchHeightConstraintsFirst = aspect < 1f),
-                    factory = { context ->
-                        SurfaceView(context).apply {
-                            holder.addCallback(object : SurfaceHolder.Callback {
-                                override fun surfaceCreated(holder: SurfaceHolder) {}
-                                override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                                    val window = ConcatNative.windowFromSurface(holder.surface)
-                                    if (window == 0L) return
-                                    val started = SystemClock.elapsedRealtime()
-                                    try {
-                                        val described = engine.attachSurface(window.toULong(), width.toUInt(), height.toUInt(), mode)
-                                        Log.i(TAG, "attached ${width}x$height in ${SystemClock.elapsedRealtime() - started} ms: $described")
-                                    } catch (error: Exception) {
-                                        message = "surface: ${error.message}"
-                                        Log.e(TAG, message)
-                                    }
-                                }
-                                override fun surfaceDestroyed(holder: SurfaceHolder) {
-                                    engine.detachSurface()
-                                }
-                            })
-                        }
-                    },
-                )
-            }
-        }
-
+        EditorSurface(engine, video, mode, Modifier.weight(1f)) { message = it }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
-            }) { Text("Import") }
+            EditorImportButton(session, clips.isEmpty(), ::refresh) { message = it }
             Button(onClick = { if (playing) engine.pause() else engine.play() }, enabled = duration > 0) {
                 Text(if (playing) "Pause" else "Play")
             }
-            Text("${seconds(position)} / ${seconds(duration)} s", color = Color.White)
+            Text("${"%.2f".format(position)} / ${"%.2f".format(duration)} s", color = Color.White)
         }
 
         Slider(
@@ -226,66 +129,14 @@ private fun Editor(
             enabled = duration > 0,
         )
 
-        ClipStrip(clips, position, duration) { engine.seek(it) }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (option in listOf("vulkan", "gl", "cpu")) {
-                FilterChip(selected = mode == option, onClick = { mode = option }, label = { Text(option) })
-            }
-        }
-        Text(
-            buildString {
-                append(stats.renderer.ifEmpty { "no surface" })
-                append("\nplay ${"%.1f".format(stats.playFps)} fps, late ${stats.lateFrames}; ")
-                append("decode ${"%.1f".format(stats.lastDecodeMs)} ms, draw ${"%.1f".format(stats.lastDrawMs)} ms")
-                append("\nscrub last ${"%.0f".format(stats.lastScrubMs)} / mean ${"%.0f".format(stats.meanScrubMs)} / max ${"%.0f".format(stats.maxScrubMs)} ms over ${stats.scrubs}")
-                if (stats.lastError.isNotEmpty()) append("\n${stats.lastError}")
-                if (message.isNotEmpty()) append("\n$message")
-            },
-            color = Color(0xFFBBBBBB),
-            fontSize = 11.sp,
-            lineHeight = 13.sp,
-        )
-    }
-}
-
-/** The timeline: one block per clip at 48dp a second, the playhead over it. Tap to seek. */
-@Composable
-private fun ClipStrip(clips: List<ClipView>, position: Double, duration: Double, seek: (Double) -> Unit) {
-    val perSecond = 48.dp
-    Box(
-        Modifier.fillMaxWidth().height(56.dp).background(Color(0xFF1C1C1C)).horizontalScroll(rememberScrollState()),
-    ) {
-        Box(Modifier.width(perSecond * maxOf(duration.toFloat(), 1f)).fillMaxHeight()) {
-            for (clip in clips) {
-                Box(
-                    Modifier
-                        .offset(x = perSecond * clip.start.toFloat(), y = (clip.lane.toInt() * 4).dp)
-                        .width(perSecond * clip.duration.toFloat())
-                        .height(48.dp)
-                        .padding(horizontal = 1.dp)
-                        .background(Color(0xFF2F6FDE))
-                        .border(1.dp, Color(0xFF9CC0FF)),
-                ) {
-                    Text(
-                        clip.name,
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(4.dp),
-                    )
-                }
-            }
-            Spacer(
-                Modifier.offset(x = perSecond * position.toFloat()).width(2.dp).fillMaxHeight().background(Color.White),
-            )
-        }
+        EditorTimeline(clips, position, duration)
+        EditorMode(mode) { mode = it }
+        EditorStats(stats, message)
     }
 }
 
 /** A scripted run, for numbers without a finger: jumps, a drag, then playback. */
-private suspend fun runBench(engine: Engine) {
+internal suspend fun runBench(engine: Engine) {
     delay(1500)
     val duration = engine.duration()
     if (duration <= 0) {
