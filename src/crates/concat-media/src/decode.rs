@@ -1958,8 +1958,8 @@ mod tests {
     fn an_hdr_file_decodes_through_the_tone_map() {
         use crate::encode::{EncodeOptions, Encoder, FrameSink, VideoCodec};
         use ffmpeg::color::{Primaries, Space, TransferCharacteristic as Transfer};
-        if !VideoCodec::Hevc.available() {
-            eprintln!("no HEVC encoder in the linked FFmpeg; skipped");
+        if !VideoCodec::Hevc.ten_bit_available() {
+            eprintln!("no HEVC ten-bit encoder in the linked FFmpeg; skipped");
             return;
         }
         let path = std::env::temp_dir().join("concat-decode-hdr-test.mp4");
@@ -1977,14 +1977,14 @@ mod tests {
         };
         let mut encoder = Encoder::create_tagged(
             &path,
-            64,
-            64,
+            256,
+            256,
             FrameRate::THIRTY,
             &options,
             (Primaries::BT2020, Transfer::SMPTE2084, Space::BT2020NCL),
         )
         .expect("an HEVC encoder");
-        let mut frame = Frame::black(64, 64);
+        let mut frame = Frame::black(256, 256);
         frame.fill([180, 180, 180, 255]);
         for _ in 0..3 {
             encoder.write_frame(&frame).expect("writes");
@@ -2004,7 +2004,7 @@ mod tests {
         let frame = deep.next_frame().expect("decodes").expect("a frame");
         assert_eq!(frame.depth(), concat_core::frame::Depth::Sixteen);
         assert_eq!(frame.signal(), concat_core::frame::Signal::Pq);
-        assert_eq!(frame.pixels().len(), 64 * 64 * 8);
+        assert_eq!(frame.pixels().len(), 256 * 256 * 8);
         let channel = |at: usize| u16::from_le_bytes([frame.pixels()[at], frame.pixels()[at + 1]]);
         let (r, g, b) = (channel(0), channel(2), channel(4));
         let written = 180.0 / 255.0 * 65535.0;

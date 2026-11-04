@@ -437,6 +437,10 @@ mod tests {
     fn the_probe_reads_a_files_hdr_tags() {
         use crate::encode::{EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec};
         use concat_core::frame::Frame;
+        if !VideoCodec::Hevc.available() {
+            eprintln!("no HEVC encoder in the linked FFmpeg; skipped");
+            return;
+        }
         let dir = std::env::temp_dir().join(format!("concat-probe-hdr-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a scratch folder");
@@ -460,12 +464,14 @@ mod tests {
         ] {
             let path = dir.join(name);
             let mut encoder = match hdr {
-                None => Encoder::create(&path, 64, 64, rate, &options),
-                Some(pq) => Encoder::create_mislabelled_hdr(&path, 64, 64, rate, &options, pq),
+                None => Encoder::create(&path, 256, 256, rate, &options),
+                Some(pq) => Encoder::create_mislabelled_hdr(&path, 256, 256, rate, &options, pq),
             }
             .expect("encodes");
             for _ in 0..3 {
-                encoder.write_frame(&Frame::black(64, 64)).expect("writes");
+                encoder
+                    .write_frame(&Frame::black(256, 256))
+                    .expect("writes");
             }
             encoder.finish().expect("finishes");
             let info = probe(&path).expect("probes");

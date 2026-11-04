@@ -2790,6 +2790,10 @@ mod tests {
     /// profile a hardware decoder checks before it takes ten-bit samples.
     #[test]
     fn the_amd_hevc_encoder_writes_main_ten() {
+        if !VideoCodec::Hevc.ten_bit_available() || encoder::find_by_name("hevc_amf").is_none() {
+            eprintln!("hevc_amf ten-bit encoding is not linked; skipped");
+            return;
+        }
         let path = std::env::temp_dir().join("concat-encode-hevc-amf.mp4");
         let options = EncodeOptions {
             codec: VideoCodec::Hevc,
@@ -2961,28 +2965,38 @@ mod tests {
             .is_err()
         );
         for codec in [VideoCodec::Hevc, VideoCodec::Av1] {
-            if !codec.available() {
-                eprintln!("{} not in the linked FFmpeg; skipped", codec.label());
+            if !codec.ten_bit_available() {
+                eprintln!(
+                    "{} has no ten-bit encoder in the linked FFmpeg; skipped",
+                    codec.label()
+                );
                 continue;
             }
             for (signal, level) in [(Signal::Hlg, 0.75f64), (Signal::Pq, 0.58)] {
                 let path = std::env::temp_dir()
                     .join(format!("concat-encode-hdr-{}-{signal:?}.mp4", codec.name()));
-                let mut encoder =
-                    Encoder::create_hdr(&path, 64, 64, FrameRate::THIRTY, &options(codec), signal)
-                        .unwrap_or_else(|error| panic!("{} {signal:?}: {error}", codec.label()));
+                // Hardware encoders such as NVENC require at least 256x256.
+                let mut encoder = Encoder::create_hdr(
+                    &path,
+                    256,
+                    256,
+                    FrameRate::THIRTY,
+                    &options(codec),
+                    signal,
+                )
+                .unwrap_or_else(|error| panic!("{} {signal:?}: {error}", codec.label()));
                 let value = (level * 65_535.0).round() as u16;
                 let pixel: Vec<u8> = [value, value, value, u16::MAX]
                     .iter()
                     .flat_map(|channel| channel.to_le_bytes())
                     .collect();
-                let frame = Frame::from_rgba64(64, 64, pixel.repeat(64 * 64), signal)
+                let frame = Frame::from_rgba64(256, 256, pixel.repeat(256 * 256), signal)
                     .expect("a deep frame");
                 for _ in 0..4 {
                     encoder.write_frame(&frame).expect("writes");
                 }
                 assert!(
-                    encoder.write_frame(&Frame::black(64, 64)).is_err(),
+                    encoder.write_frame(&Frame::black(256, 256)).is_err(),
                     "an HDR file takes deep frames only"
                 );
                 encoder.finish().expect("finishes");

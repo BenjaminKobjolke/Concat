@@ -280,8 +280,8 @@ mod tests {
     fn an_hdr_file_gets_an_hdr_proxy() {
         use concat_core::frame::{Depth, Frame};
         use concat_core::time::FrameRate;
-        if !VideoCodec::Hevc.available() {
-            eprintln!("no HEVC encoder in the linked FFmpeg; skipped");
+        if !VideoCodec::Hevc.ten_bit_available() {
+            eprintln!("no HEVC ten-bit encoder in the linked FFmpeg; skipped");
             return;
         }
         let dir = std::env::temp_dir().join(format!("concat-proxy-hdr-{}", std::process::id()));

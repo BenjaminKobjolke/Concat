@@ -1141,8 +1141,8 @@ fn fades_and_wipes_reach_the_picture() {
 /// written as, conformed: neither black nor blown out, and not tinted.
 #[test]
 fn an_hlg_clip_exports_through_the_gpu_conversion() {
-    if !VideoCodec::Hevc.available() {
-        eprintln!("no HEVC encoder in the linked FFmpeg; skipped");
+    if !VideoCodec::Hevc.ten_bit_available() {
+        eprintln!("no HEVC ten-bit encoder in the linked FFmpeg; skipped");
         return;
     }
     let scratch = Scratch::new("hlg");
@@ -1201,8 +1201,8 @@ fn an_hlg_clip_exports_through_the_gpu_conversion() {
 fn an_hlg_timeline_exports_as_hdr_or_sdr() {
     use concat_core::frame::{Depth, Signal};
     use concat_media::{DecodeOptions, Decoder, FrameSource};
-    if !VideoCodec::Hevc.available() {
-        eprintln!("no HEVC encoder in the linked FFmpeg; skipped");
+    if !VideoCodec::Hevc.ten_bit_available() {
+        eprintln!("no HEVC ten-bit encoder in the linked FFmpeg; skipped");
         return;
     }
     const LEVEL: f64 = 0.6;
