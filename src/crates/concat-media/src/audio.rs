@@ -1164,6 +1164,10 @@ pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
         .map_err(|error| ffi::fail("write trailer", output, error))
 }
 
+fn later_packet_end(current: Rational, candidate: Rational) -> Rational {
+    current.max(candidate)
+}
+
 /// One input of the mux: its demuxer, which of its streams is wanted, and
 /// the packet of that stream waiting to be written.
 struct Feed<'a> {
@@ -1246,7 +1250,7 @@ impl<'a> Feed<'a> {
         if let Some(ticks) = packet.pts().or(packet.dts())
             && let Some(end) = ffi::seconds(ticks + packet.duration(), self.from)
         {
-            self.end = end;
+            self.end = later_packet_end(self.end, end);
         }
         packet.set_stream(self.stream);
         packet.rescale_ts(self.from, self.to);
@@ -1260,6 +1264,12 @@ impl<'a> Feed<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mux_keeps_the_furthest_packet_end_when_pts_are_reordered() {
+        let end = later_packet_end(Rational::from_int(6), Rational::new(445, 75));
+        assert_eq!(end, Rational::from_int(6));
+    }
 
     fn clip(path: &str) -> AudioClip {
         AudioClip {
