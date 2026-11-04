@@ -412,7 +412,7 @@ fn text(bytes: &[u8]) -> String {
 }
 
 /// What the tests of this crate share.
-#[cfg(all(test, feature = "infer", target_vendor = "apple"))]
+#[cfg(test)]
 pub(crate) mod tests_support {
     pub(crate) use super::tests::fetched_model;
 }
@@ -472,7 +472,7 @@ mod tests {
         bases
             .iter()
             .flat_map(|base| {
-                ["org.standalones.concat", "app.concat.editor"].map(|id| {
+                ["app.concat.editor", "org.standalones.concat"].map(|id| {
                     base.join(id)
                         .join("cutout-models")
                         .join("realesr-general-x4v3.onnx")
