@@ -388,7 +388,8 @@ mod tests {
             .port();
         let failure = get(
             &format!("http://127.0.0.1:{port}/model.bin"),
-            Duration::from_secs(2),
+            // Windows can retry a refused loopback connection for about 2 seconds.
+            Duration::from_secs(10),
             Duration::from_secs(2),
             Trust::System,
             &|request| request,

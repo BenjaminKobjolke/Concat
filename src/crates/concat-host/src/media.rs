@@ -1074,10 +1074,10 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("concat-filmstrip-test-{}.mp4", std::process::id()));
         let mut encoder =
-            Encoder::create(&path, 64, 32, FrameRate::THIRTY, &EncodeOptions::default())
+            Encoder::create(&path, 256, 128, FrameRate::THIRTY, &EncodeOptions::default())
                 .expect("encodes");
         for index in 0..60u32 {
-            let mut frame = Frame::black(64, 32);
+            let mut frame = Frame::black(256, 128);
             frame.fill([(index * 4).min(255) as u8, 60, 60, 255]);
             encoder.write_frame(&frame).expect("writes");
         }
@@ -1116,10 +1116,10 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("concat-card-still-test-{}.mp4", std::process::id()));
         let mut encoder =
-            Encoder::create(&path, 64, 32, FrameRate::THIRTY, &EncodeOptions::default())
+            Encoder::create(&path, 256, 128, FrameRate::THIRTY, &EncodeOptions::default())
                 .expect("encodes");
         for index in 0..120u32 {
-            let mut frame = Frame::black(64, 32);
+            let mut frame = Frame::black(256, 128);
             if index >= 30 {
                 frame.fill([(100 + index) as u8, 30, 30, 255]);
             }
@@ -1179,10 +1179,10 @@ mod tests {
         use concat_media::{EncodeOptions, Encoder, FrameSink};
 
         let mut encoder =
-            Encoder::create(path, 64, 32, FrameRate::THIRTY, &EncodeOptions::default())
+            Encoder::create(path, 256, 128, FrameRate::THIRTY, &EncodeOptions::default())
                 .expect("encodes");
         for index in 0..480u32 {
-            let mut frame = Frame::black(64, 32);
+            let mut frame = Frame::black(256, 128);
             frame.fill([(index * 255 / 479) as u8, 60, 60, 255]);
             encoder.write_frame(&frame).expect("writes");
         }
@@ -1288,14 +1288,14 @@ mod tests {
         let leader = scratch.join("leader.mp4");
         let mut encoder = Encoder::create(
             &leader,
-            64,
-            32,
+            256,
+            128,
             FrameRate::THIRTY,
             &EncodeOptions::default(),
         )
         .expect("encodes");
         for index in 0..120u32 {
-            let mut frame = Frame::black(64, 32);
+            let mut frame = Frame::black(256, 128);
             if index >= 60 {
                 frame.fill([220, 30, 30, 255]);
             }
@@ -1305,10 +1305,10 @@ mod tests {
         // And four seconds of nothing.
         let dark = scratch.join("dark.mp4");
         let mut encoder =
-            Encoder::create(&dark, 64, 32, FrameRate::THIRTY, &EncodeOptions::default())
+            Encoder::create(&dark, 256, 128, FrameRate::THIRTY, &EncodeOptions::default())
                 .expect("encodes");
         for _ in 0..120u32 {
-            encoder.write_frame(&Frame::black(64, 32)).expect("writes");
+            encoder.write_frame(&Frame::black(256, 128)).expect("writes");
         }
         encoder.finish().expect("finishes");
 

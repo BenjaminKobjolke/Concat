@@ -1795,14 +1795,19 @@ pub(crate) mod tests {
     /// channel encodes the frame index (x2 to survive compression
     /// rounding).
     pub(crate) fn counting_video(name: &str, size: u32, frames: u32) -> PathBuf {
+        let size = size.max(256);
         let path =
             std::env::temp_dir().join(format!("concat-pool-{name}-{}.mp4", std::process::id()));
+        let options = EncodeOptions {
+            hardware: false,
+            ..EncodeOptions::default()
+        };
         let mut encoder = Encoder::create(
             &path,
             size,
             size,
             FrameRate::THIRTY,
-            &EncodeOptions::default(),
+            &options,
         )
         .expect("the linked FFmpeg encodes h264");
         for index in 0..frames {
@@ -2185,19 +2190,18 @@ pub(crate) mod tests {
     /// once and said to be inexact; the frame itself, asked for exactly
     /// once the scrub rests, is the true one and not the keyframe cached
     /// under its instant; and once it is cached a scrub gets it. The
-    /// counting clip has a keyframe every twelve frames: 60 and 72 sit
-    /// either side of 65, and 60 is nearer.
+    /// counting clip's keyframe spacing comes from its index, so the scrub
+    /// stays between indexed keyframes across encoder GOP choices.
     #[test]
     fn a_scrub_is_shown_the_nearest_keyframe_and_never_caches_it_as_the_frame() {
-        let path = counting_video("nearest", 64, 120);
+        let path = counting_video("nearest", 64, 150);
         let pool = ReaderPool::new(64 * 1024 * 1024, 8);
         let facts = pool.facts_for(&path, false).expect("probes");
-        assert_eq!(
-            facts.keyframes.get(5).copied(),
-            Some(Rational::from_int(2)),
-            "the index names the keyframes: {:?}",
-            facts.keyframes
-        );
+        assert!(facts.keyframes.len() >= 3, "indexed keyframes: {:?}", facts.keyframes);
+        let rate = FrameRate::THIRTY;
+        let k1 = rate.frame_at(facts.keyframes[1]);
+        let k2 = rate.frame_at(facts.keyframes[2]);
+        let target = k1 + (k2 - k1) / 4;
         let at = |index: i64| {
             FrameRequest::new(&path, FrameRate::THIRTY.time_of_frame(index), 64, 64)
                 .at_any_size(true)
@@ -2205,22 +2209,22 @@ pub(crate) mod tests {
         // Frame n is filled with red 2n.
         let frame_of = |frame: &Frame| i64::from(frame.pixel(32, 32).expect("inside")[0]) / 2;
 
-        let first = pool.frame_nearest(&at(65)).expect("decodes");
+        let first = pool.frame_nearest(&at(target)).expect("decodes");
         assert!(!first.exact, "a walk never timed gives way");
-        assert!((59..=61).contains(&frame_of(&first.frame)), "keyframe 60");
+        assert_eq!(frame_of(&first.frame), k1, "the preceding indexed keyframe");
 
-        let exact = pool.frame(&at(65)).expect("decodes");
+        let exact = pool.frame(&at(target)).expect("decodes");
         assert!(
-            (64..=66).contains(&frame_of(&exact)),
+            (target - 2..=target + 2).contains(&frame_of(&exact)),
             "the frame itself, not the keyframe: {}",
             frame_of(&exact)
         );
 
-        let again = pool.frame_nearest(&at(65)).expect("cached");
+        let again = pool.frame_nearest(&at(target)).expect("cached");
         assert!(again.exact);
         assert!(Arc::ptr_eq(&again.frame, &exact));
         assert!(
-            pool.frame_nearest(&at(72)).expect("decodes").exact,
+            pool.frame_nearest(&at(k2)).expect("decodes").exact,
             "a keyframe is exact"
         );
         let _ = std::fs::remove_file(&path);
