@@ -1217,7 +1217,7 @@ pub fn voice_names(name: &str) -> (String, String) {
 /// "af_heart" as a person would say it: the name, and the accent and
 /// gender its prefix encodes; "chatterbox_bria" is Bria.
 fn voice_label(name: &str) -> (String, String) {
-    if name == "chatterbox_clone" {
+    if matches!(name, "chatterbox_clone" | "pocket_clone") {
         return (
             t("speech.theSelectedClipsVoice"),
             t("speech.readsVoiceHeardClip"),
@@ -1229,6 +1229,9 @@ fn voice_label(name: &str) -> (String, String) {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
     };
+    if prefix == "pocket" {
+        return (title, "Pocket".to_owned());
+    }
     let accent = match prefix.chars().next() {
         Some('a') => t("speech.american"),
         Some('b') => t("speech.british"),
