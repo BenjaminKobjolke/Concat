@@ -18,10 +18,11 @@ use serde::Deserialize;
 use crate::Error;
 use crate::expr::{Expr, Value};
 use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass};
-
 use crate::manifest::{Kind, Manifest, ParamType};
 use crate::shader::{Shader, TransitionShader};
 use crate::template::Template;
+
+const RETIRED_TRANSITION_KNOBS: &[(&str, &str, f64)] = &[("wipe-left", "direction", 1.0)];
 
 /// The author every built-in package is under, and no other package may
 /// be: the front of an id, before the dot.
@@ -1237,7 +1238,14 @@ impl Catalogue {
     ) -> Option<TransitionPass> {
         let package = self.get(id)?;
         let shader = package.transition()?;
-        let values = package.resolve(params);
+        let mut params = params.clone();
+        for &(retired_id, key, value) in RETIRED_TRANSITION_KNOBS {
+            if id == retired_id && !params.contains_key(key) {
+                // The old ids named a direction while the package defaults to left-to-right.
+                params.insert(key.to_owned(), value);
+            }
+        }
+        let values = package.resolve(&params);
         Some(shader.pass(
             &values,
             &package.manifest.params,
@@ -1300,6 +1308,25 @@ impl Catalogue {
 mod tests {
     use super::*;
     use concat_project::model::KeyEase;
+
+    #[test]
+    fn retired_wipe_names_keep_their_directions() {
+        let catalogue = Catalogue::builtin();
+        let direction = |id: &str, params: &BTreeMap<String, f64>| {
+            let pass = catalogue
+                .transition_pass(id, params, 0.5)
+                .expect("wipe transition");
+            f32::from_le_bytes(pass.params[..4].try_into().expect("direction parameter"))
+        };
+
+        assert_eq!(direction("wipe-left", &BTreeMap::new()), 1.0);
+        assert_eq!(direction("wipe-right", &BTreeMap::new()), 0.0);
+        assert_eq!(
+            direction("wipe-left", &BTreeMap::from([("direction".to_owned(), 2.0)])),
+            2.0,
+            "an explicit direction takes precedence"
+        );
+    }
 
     /// A link to a retired key or blur opens as its stand-in, its knobs
     /// carried over as the `[[replaces]]` table says - the screen's colour,
