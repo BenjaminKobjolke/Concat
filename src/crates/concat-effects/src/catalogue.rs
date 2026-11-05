@@ -17,10 +17,10 @@ use serde::Deserialize;
 
 use crate::Error;
 use crate::expr::{Expr, Value};
-use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass};
 use crate::manifest::{Kind, Manifest, ParamType};
 use crate::shader::{Shader, TransitionShader};
 use crate::template::Template;
+use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass};
 
 const RETIRED_TRANSITION_KNOBS: &[(&str, &str, f64)] = &[("wipe-left", "direction", 1.0)];
 
@@ -1322,7 +1322,10 @@ mod tests {
         assert_eq!(direction("wipe-left", &BTreeMap::new()), 1.0);
         assert_eq!(direction("wipe-right", &BTreeMap::new()), 0.0);
         assert_eq!(
-            direction("wipe-left", &BTreeMap::from([("direction".to_owned(), 2.0)])),
+            direction(
+                "wipe-left",
+                &BTreeMap::from([("direction".to_owned(), 2.0)])
+            ),
             2.0,
             "an explicit direction takes precedence"
         );

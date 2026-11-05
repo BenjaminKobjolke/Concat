@@ -1073,9 +1073,14 @@ mod tests {
 
         let path =
             std::env::temp_dir().join(format!("concat-filmstrip-test-{}.mp4", std::process::id()));
-        let mut encoder =
-            Encoder::create(&path, 256, 128, FrameRate::THIRTY, &EncodeOptions::default())
-                .expect("encodes");
+        let mut encoder = Encoder::create(
+            &path,
+            256,
+            128,
+            FrameRate::THIRTY,
+            &EncodeOptions::default(),
+        )
+        .expect("encodes");
         for index in 0..60u32 {
             let mut frame = Frame::black(256, 128);
             frame.fill([(index * 4).min(255) as u8, 60, 60, 255]);
@@ -1115,9 +1120,14 @@ mod tests {
         // A second of black, then red brightening a step a frame.
         let path =
             std::env::temp_dir().join(format!("concat-card-still-test-{}.mp4", std::process::id()));
-        let mut encoder =
-            Encoder::create(&path, 256, 128, FrameRate::THIRTY, &EncodeOptions::default())
-                .expect("encodes");
+        let mut encoder = Encoder::create(
+            &path,
+            256,
+            128,
+            FrameRate::THIRTY,
+            &EncodeOptions::default(),
+        )
+        .expect("encodes");
         for index in 0..120u32 {
             let mut frame = Frame::black(256, 128);
             if index >= 30 {
@@ -1304,11 +1314,18 @@ mod tests {
         encoder.finish().expect("finishes");
         // And four seconds of nothing.
         let dark = scratch.join("dark.mp4");
-        let mut encoder =
-            Encoder::create(&dark, 256, 128, FrameRate::THIRTY, &EncodeOptions::default())
-                .expect("encodes");
+        let mut encoder = Encoder::create(
+            &dark,
+            256,
+            128,
+            FrameRate::THIRTY,
+            &EncodeOptions::default(),
+        )
+        .expect("encodes");
         for _ in 0..120u32 {
-            encoder.write_frame(&Frame::black(256, 128)).expect("writes");
+            encoder
+                .write_frame(&Frame::black(256, 128))
+                .expect("writes");
         }
         encoder.finish().expect("finishes");
 

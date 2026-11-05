@@ -477,9 +477,7 @@ fn order_rate_controlled_h264<T>(
     windows: bool,
 ) -> Vec<(&'static str, T)> {
     if codec == VideoCodec::H264 && windows && mode != RateMode::Vbr {
-        let media_foundation = candidates
-            .iter()
-            .position(|(name, _)| *name == "h264_mf");
+        let media_foundation = candidates.iter().position(|(name, _)| *name == "h264_mf");
         let open_h264 = candidates
             .iter()
             .position(|(name, _)| *name == "libopenh264");
@@ -2191,13 +2189,7 @@ mod tests {
 
     #[test]
     fn rated_h264_uses_openh264_before_media_foundation_on_windows() {
-        let candidates = || {
-            vec![
-                ("h264_nvenc", 1),
-                ("h264_mf", 2),
-                ("libopenh264", 3),
-            ]
-        };
+        let candidates = || vec![("h264_nvenc", 1), ("h264_mf", 2), ("libopenh264", 3)];
         for mode in [RateMode::Cbr, RateMode::Average] {
             let ordered = order_rate_controlled_h264(candidates(), VideoCodec::H264, mode, true);
             assert_eq!(
@@ -2206,12 +2198,7 @@ mod tests {
             );
         }
         assert_eq!(
-            order_rate_controlled_h264(
-                candidates(),
-                VideoCodec::H264,
-                RateMode::Vbr,
-                true,
-            )
+            order_rate_controlled_h264(candidates(), VideoCodec::H264, RateMode::Vbr, true,)
                 .iter()
                 .map(|(name, _)| *name)
                 .collect::<Vec<_>>(),
@@ -3087,12 +3074,11 @@ mod tests {
                 continue;
             }
             for ten_bit in [false, true] {
-                if ten_bit
-                    && !codec
-                        .linked(true, true)
-                        .any(|name| opens_here(codec, name))
-                {
-                    eprintln!("{} has no available ten-bit encoder here; skipped", codec.label());
+                if ten_bit && !codec.linked(true, true).any(|name| opens_here(codec, name)) {
+                    eprintln!(
+                        "{} has no available ten-bit encoder here; skipped",
+                        codec.label()
+                    );
                     continue;
                 }
                 let path = std::env::temp_dir().join(format!(

@@ -1802,14 +1802,8 @@ pub(crate) mod tests {
             hardware: false,
             ..EncodeOptions::default()
         };
-        let mut encoder = Encoder::create(
-            &path,
-            size,
-            size,
-            FrameRate::THIRTY,
-            &options,
-        )
-        .expect("the linked FFmpeg encodes h264");
+        let mut encoder = Encoder::create(&path, size, size, FrameRate::THIRTY, &options)
+            .expect("the linked FFmpeg encodes h264");
         for index in 0..frames {
             let mut frame = Frame::black(size, size);
             frame.fill([(index * 2).min(255) as u8, 40, 40, 255]);
@@ -2197,7 +2191,11 @@ pub(crate) mod tests {
         let path = counting_video("nearest", 64, 150);
         let pool = ReaderPool::new(64 * 1024 * 1024, 8);
         let facts = pool.facts_for(&path, false).expect("probes");
-        assert!(facts.keyframes.len() >= 3, "indexed keyframes: {:?}", facts.keyframes);
+        assert!(
+            facts.keyframes.len() >= 3,
+            "indexed keyframes: {:?}",
+            facts.keyframes
+        );
         let rate = FrameRate::THIRTY;
         let k1 = rate.frame_at(facts.keyframes[1]);
         let k2 = rate.frame_at(facts.keyframes[2]);
