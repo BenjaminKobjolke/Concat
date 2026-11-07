@@ -146,7 +146,7 @@ struct EnhancePreview {
     /// a preview of other settings or another file is not this one.
     clip_id: String,
     media_id: String,
-    factor: u32,
+    scale: f32,
     /// The plain enlargement and the model's full-strength answer, kept so
     /// Strength re-blends them at once rather than running the model again.
     plain: concat_core::Frame,
@@ -163,17 +163,22 @@ struct EnhancePreview {
 /// The Enhance section's rows for one clip; see `Studio::enhance_readout`.
 #[derive(Default)]
 struct EnhanceReadout {
-    /// The Size row's segment: 0 Auto, 1 once, 2 twice, 3 four times.
-    size: i32,
-    /// What Auto comes to for this file.
-    auto: u32,
-    fits_2x: bool,
-    fits_4x: bool,
-    /// Why a size is greyed, or empty.
+    /// The scale a run would make, once to four times: Auto's, or the ask
+    /// held to what this file may take.
+    scale: f32,
+    /// What Auto comes to for this file, and the most it may be enlarged:
+    /// as far as 2K, never past the model's four times.
+    auto_scale: f32,
+    max_scale: f32,
+    /// The file's size and the copy's, "1280 × 720" and "2560 × 1440".
+    source: String,
+    output: String,
+    /// Why the scale cannot move, or empty.
     size_note: String,
-    /// Before, after and the estimate for a whole run, when a preview of
-    /// these settings is on hand.
-    preview: Option<(slint::Image, slint::Image, String)>,
+    /// Before, after and the estimate for a whole run - its time, its
+    /// frames and each frame's time, the last two empty for a still - when
+    /// a preview of these settings is on hand.
+    preview: Option<(slint::Image, slint::Image, (String, String, String))>,
 }
 
 impl EnhancePreview {
@@ -1047,6 +1052,9 @@ pub struct Studio {
     /// Bumped when the library should show its Media page: a file the
     /// editor just made and put in the bin. See `Editor.media-jump-token`.
     pub media_jump: i32,
+    /// Bumped to turn the library to Text & Captions > Captions; see
+    /// `Editor.captions-jump-token`.
+    pub captions_jump: i32,
     /// A look being shown before it is laid down: the filter's id. It is
     /// drawn into the frames the monitor asks for as a layer over the whole
     /// picture, and nowhere else - the timeline does not have it until the
@@ -1089,6 +1097,9 @@ pub struct Studio {
     /// while that clip is still the one selected.
     words: Option<(String, usize, usize)>,
     commit_timer: slint::Timer,
+    /// Saves the layout once the panels have stopped moving; see
+    /// `remember_layout_soon`.
+    layout_timer: slint::Timer,
     /// What the catalogue shelves were last built from; while nothing in
     /// it changes the shelves are not rebuilt.
     shelf_stamp: std::cell::RefCell<Option<ShelfStamp>>,
@@ -1189,12 +1200,12 @@ pub struct Studio {
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,
-    /// The Enhance section's Size, in times larger, 0 for Auto, and its
+    /// The Enhance section's Scale, in times larger, 0 for Auto, and its
     /// Strength, 0 to 1. The window's rather than a clip's: they are what
     /// the next run is made with, carried from clip to clip the way a
     /// tool's settings are, and a copy already made is named by its own;
     /// see `concat_host::enhance::target_for`.
-    enhance_size: u32,
+    enhance_scale: f32,
     enhance_strength: f32,
     /// The last preview of a frame through the model, while the clip it
     /// was made for is the one in the inspector.
@@ -1847,6 +1858,11 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<C
     if after.mask != before.mask {
         patch.mask = Some(after.mask);
     }
+    if after.shape != before.shape
+        && let Some(shape) = after.shape.clone()
+    {
+        patch.shape = Some(shape);
+    }
     commands.extend(key_commands(id, before, after));
     if after.text != before.text {
         patch.text = Some(after.text.clone());
@@ -2390,6 +2406,9 @@ pub enum Confirm {
     /// this a disk unplugged, full or read-only made a window that would
     /// never close.
     QuitWithoutSaving { error: String },
+    /// Restarting for a setting that is read only at launch: the project
+    /// is saved, and opens again in the new window.
+    Restart,
 }
 
 /// One clip on the clipboard: the clip as it was when copied, the row of
@@ -2547,6 +2566,17 @@ impl Studio {
     /// read off disk.
     pub fn new(host: Host) -> Self {
         let prefs = Preferences::load(&host.dirs);
+        // The panels where the last session left them, while Settings says
+        // to; a saved dock this build cannot read is the default instead.
+        let saved = prefs.layout.as_ref().filter(|_| prefs.remembers_layout());
+        let dock = saved
+            .and_then(|layout| layout.wide.as_ref())
+            .and_then(Dock::from_saved)
+            .unwrap_or_else(default_dock);
+        let dock_aside = saved
+            .and_then(|layout| layout.compact.as_ref())
+            .and_then(Dock::from_saved)
+            .unwrap_or_else(crate::dock::compact_dock);
         let mut start = crate::panes::start::StartPane::default();
         if let Some(location) = prefs.project_location() {
             start.location = location.to_owned();
@@ -2617,8 +2647,8 @@ impl Studio {
             posters_pending: HashSet::new(),
             lengths: HashMap::new(),
             project_name: t("common.untitledProject"),
-            dock: default_dock(),
-            dock_aside: crate::dock::compact_dock(),
+            dock,
+            dock_aside,
             compact: false,
             workspace: (0.0, 0.0),
             divider_press: None,
@@ -2626,6 +2656,7 @@ impl Studio {
             stage_guides: Vec::new(),
             inspector_jump: (0, "", ""),
             media_jump: 0,
+            captions_jump: 0,
             audition: None,
             revision: 0,
             flat: None,
@@ -2633,6 +2664,7 @@ impl Studio {
             commit_targets: Vec::new(),
             words: None,
             commit_timer: slint::Timer::default(),
+            layout_timer: slint::Timer::default(),
             shelf_stamp: std::cell::RefCell::new(None),
             look_art: std::cell::RefCell::new(HashMap::new()),
             card_paths: HashMap::new(),
@@ -2667,7 +2699,7 @@ impl Studio {
             stabilize_jobs: HashMap::new(),
             stabilize_retry: HashSet::new(),
             enhance_jobs: HashMap::new(),
-            enhance_size: 0,
+            enhance_scale: 0.0,
             enhance_strength: concat_host::enhance::DEFAULT_STRENGTH,
             enhance_preview: None,
             enhance_previewing: None,

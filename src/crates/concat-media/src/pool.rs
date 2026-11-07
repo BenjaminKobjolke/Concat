@@ -2183,23 +2183,29 @@ pub(crate) mod tests {
     /// A scrub far from any frame decoded is shown the nearest keyframe, at
     /// once and said to be inexact; the frame itself, asked for exactly
     /// once the scrub rests, is the true one and not the keyframe cached
-    /// under its instant; and once it is cached a scrub gets it. The
-    /// counting clip's keyframe spacing comes from its index, so the scrub
-    /// stays between indexed keyframes across encoder GOP choices.
+    /// under its instant; and once it is cached a scrub gets it. Where the
+    /// keyframes fall is the encoder's to choose - a VideoToolbox clip has
+    /// one every twelve frames, an OpenH264 one every sixty - so the test
+    /// reads them from the index and scrubs between two of them, nearer
+    /// the first.
     #[test]
     fn a_scrub_is_shown_the_nearest_keyframe_and_never_caches_it_as_the_frame() {
         let path = counting_video("nearest", 64, 150);
         let pool = ReaderPool::new(64 * 1024 * 1024, 8);
         let facts = pool.facts_for(&path, false).expect("probes");
-        assert!(
-            facts.keyframes.len() >= 3,
-            "indexed keyframes: {:?}",
-            facts.keyframes
-        );
-        let rate = FrameRate::THIRTY;
-        let k1 = rate.frame_at(facts.keyframes[1]);
-        let k2 = rate.frame_at(facts.keyframes[2]);
-        let target = k1 + (k2 - k1) / 4;
+        let keys: Vec<i64> = facts
+            .keyframes
+            .iter()
+            .map(|at| (at.as_f64() * 30.0).round() as i64)
+            .collect();
+        let Some((before, after)) = keys
+            .windows(2)
+            .map(|pair| (pair[0], pair[1]))
+            .find(|(before, after)| after - before >= 8)
+        else {
+            panic!("the index names two keyframes apart: {keys:?}");
+        };
+        let target = before + ((after - before) / 4).max(2);
         let at = |index: i64| {
             FrameRequest::new(&path, FrameRate::THIRTY.time_of_frame(index), 64, 64)
                 .at_any_size(true)
@@ -2209,20 +2215,28 @@ pub(crate) mod tests {
 
         let first = pool.frame_nearest(&at(target)).expect("decodes");
         assert!(!first.exact, "a walk never timed gives way");
-        assert_eq!(frame_of(&first.frame), k1, "the preceding indexed keyframe");
-
-        let exact = pool.frame(&at(target)).expect("decodes");
         assert!(
-            (target - 2..=target + 2).contains(&frame_of(&exact)),
-            "the frame itself, not the keyframe: {}",
-            frame_of(&exact)
+            (before - 1..=before + 1).contains(&frame_of(&first.frame)),
+            "keyframe {before} for frame {target}, of {keys:?}: {}",
+            frame_of(&first.frame)
+        );
+
+        // Media Foundation's H.264, Windows' encoder, lets this fixture's
+        // slow fade lag by up to two frames - its frame 15 decodes red 26,
+        // with FFmpeg's own decoder too - so the frame is allowed to read
+        // a little early, as long as it is past the keyframe.
+        let exact = pool.frame(&at(target)).expect("decodes");
+        let read = frame_of(&exact);
+        assert!(
+            (target - 3..=target + 1).contains(&read) && read > before + 1,
+            "the frame itself, {target}, not keyframe {before}: {read}"
         );
 
         let again = pool.frame_nearest(&at(target)).expect("cached");
         assert!(again.exact);
         assert!(Arc::ptr_eq(&again.frame, &exact));
         assert!(
-            pool.frame_nearest(&at(k2)).expect("decodes").exact,
+            pool.frame_nearest(&at(after)).expect("decodes").exact,
             "a keyframe is exact"
         );
         let _ = std::fs::remove_file(&path);

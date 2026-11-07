@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use concat_core::frame::{Depth, Frame, Signal};
+use concat_core::frame::{Chroma, Depth, Frame, Signal, Yuv420, YuvLayout};
 use concat_core::time::FrameRate;
 use ffmpeg_the_third as ffmpeg;
 use ffmpeg_the_third::codec::encoder;
@@ -253,6 +253,16 @@ impl VideoCodec {
             .filter(move |name| !ten_bit || takes_ten_bits(name))
             .filter(|name| switched_on(name, |key| std::env::var_os(key)))
             .filter(|name| encoder::find_by_name(name).is_some())
+    }
+
+    /// Whether every ten-bit encoder linked for it is a chip's: no CPU
+    /// encoder makes it at ten bits, so a machine without the hardware -
+    /// a CI runner, a desktop with no GPU encoder - cannot write it. HEVC
+    /// on Windows and Linux since x265 left the builds; Kvazaar is eight
+    /// bits only. True as well where nothing at ten bits is linked.
+    pub fn ten_bit_only_on_hardware(self) -> bool {
+        self.linked(true, true)
+            .all(|name| Family::of(name).hardware())
     }
 
     /// Whether the linked FFmpeg carries an encoder for it.
@@ -1333,6 +1343,9 @@ pub struct Encoder {
     /// A PQ file's light, measured as it is written, for the metadata the
     /// file carries once it is finished.
     light: Option<LightLevel>,
+    /// The YUV pictures [`Encoder::write_yuv`] takes as they are, when the
+    /// encoder's own pixel format is one; see [`Encoder::yuv_layout`].
+    takes: Option<YuvLayout>,
 }
 
 /// The mastering display an HDR10 file names: a P3 display of 1000 nits
@@ -1793,12 +1806,108 @@ impl Encoder {
             color_range: options.color_range.as_ffmpeg(),
             deep,
             light: pq.then(LightLevel::new),
+            takes: match pixel_format {
+                _ if deep => None,
+                Pixel::NV12 => Some(Chroma::Nv12),
+                Pixel::YUV420P => Some(Chroma::I420),
+                _ => None,
+            }
+            .map(|chroma| YuvLayout {
+                chroma,
+                full_range: options.color_range == ColorRange::Full,
+            }),
         })
     }
 
     /// Which FFmpeg encoder is doing the work, e.g. "hevc_videotoolbox".
     pub fn encoder_name(&self) -> &'static str {
         self.encoder_name
+    }
+
+    /// Stamps a frame in the encoder's own pixel format and encodes it.
+    fn encode_converted(&mut self, mut converted: Video) -> Result<()> {
+        converted.set_pts(Some(self.written as i64));
+        // The frame says what its numbers span, the same as the stream
+        // does: a hardware encoder reads it off the frame.
+        // SAFETY: `converted` is a live frame, its picture filled in; the
+        // range is a plain field the encoder reads with the picture.
+        unsafe {
+            (*converted.as_mut_ptr()).color_range = self.color_range.into();
+        }
+        // An encoder held to a fixed quality - MPEG-4's quantiser - takes
+        // it off each frame, as the command line stamps it there, and
+        // would otherwise run at its finest.
+        // SAFETY: the encoder's context is live for as long as `self` is,
+        // and `flags`, `global_quality` and `quality` are plain fields.
+        unsafe {
+            let context = self.encoder.as_ptr();
+            if (*context).flags & ffmpeg::sys::AV_CODEC_FLAG_QSCALE as i32 != 0 {
+                (*converted.as_mut_ptr()).quality = (*context).global_quality;
+            }
+        }
+
+        self.send(Some(&converted))?;
+        self.written += 1;
+        self.drain()
+    }
+
+    /// The YUV picture this encoder takes as it is, with no conversion:
+    /// eight-bit 4:2:0 BT.709 in its own chroma layout and its stream's
+    /// range. `None` for one that takes something else - ten bits, alpha,
+    /// an HDR file - which is handed [`Frame`]s.
+    pub fn yuv_layout(&self) -> Option<YuvLayout> {
+        self.takes
+    }
+
+    /// Encodes a picture already in the encoder's own YUV - see
+    /// [`Encoder::yuv_layout`] - copying its planes in, with nothing
+    /// converted. The colour must be the frame [`FrameSink::write_frame`]
+    /// would make of the same picture: BT.709's coefficients, in the
+    /// stream's range.
+    pub fn write_yuv(&mut self, picture: &Yuv420) -> Result<()> {
+        if picture.width() != self.width || picture.height() != self.height {
+            return Err(Error::FrameSizeMismatch {
+                want_width: self.width,
+                want_height: self.height,
+                got_width: picture.width(),
+                got_height: picture.height(),
+            });
+        }
+        if self.finished || self.takes != Some(picture.layout()) {
+            return Err(Error::Io {
+                path: self.path.clone(),
+                source: std::io::Error::other(if self.finished {
+                    "encoder was already finished"
+                } else {
+                    "the picture is not in the encoder's own pixel format"
+                }),
+            });
+        }
+        let width = self.width as usize;
+        let nv12 = picture.layout().chroma == Chroma::Nv12;
+        let mut video = Video::new(
+            if nv12 { Pixel::NV12 } else { Pixel::YUV420P },
+            self.width,
+            self.height,
+        );
+        // Each plane row by row into the frame's own strides, which pad.
+        let mut plane = |index: usize, from: &[u8], row: usize| {
+            let stride = video.stride(index);
+            let data = video.data_mut(index);
+            for (y, source) in from.chunks_exact(row).enumerate() {
+                data[y * stride..y * stride + row].copy_from_slice(source);
+            }
+        };
+        plane(0, picture.luma(), width);
+        let chroma = picture.chroma();
+        if nv12 {
+            plane(1, chroma, width);
+        } else {
+            let (u, v) = chroma.split_at(chroma.len() / 2);
+            plane(1, u, width / 2);
+            plane(2, v, width / 2);
+        }
+        self.encode_converted(video)
     }
 
     /// Whether the platform's hardware is doing the work rather than the
@@ -2036,29 +2145,7 @@ impl FrameSink for Encoder {
         self.scaler
             .run(&rgba, &mut converted)
             .map_err(|error| ffi::fail("convert", &self.path, error))?;
-        converted.set_pts(Some(self.written as i64));
-        // The frame says what its numbers span, the same as the stream
-        // does: a hardware encoder reads it off the frame.
-        // SAFETY: `converted` is a live frame the scaler just filled; the
-        // range is a plain field the encoder reads with the picture.
-        unsafe {
-            (*converted.as_mut_ptr()).color_range = self.color_range.into();
-        }
-        // An encoder held to a fixed quality - MPEG-4's quantiser - takes
-        // it off each frame, as the command line stamps it there, and
-        // would otherwise run at its finest.
-        // SAFETY: the encoder's context is live for as long as `self` is,
-        // and `flags`, `global_quality` and `quality` are plain fields.
-        unsafe {
-            let context = self.encoder.as_ptr();
-            if (*context).flags & ffmpeg::sys::AV_CODEC_FLAG_QSCALE as i32 != 0 {
-                (*converted.as_mut_ptr()).quality = (*context).global_quality;
-            }
-        }
-
-        self.send(Some(&converted))?;
-        self.written += 1;
-        self.drain()
+        self.encode_converted(converted)
     }
 
     fn finish(&mut self) -> Result<()> {
@@ -2174,18 +2261,6 @@ pub fn jpeg(frame: &Frame, quality: u8) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn fill_film_grain(frame: &mut Frame, state: &mut u64) {
-        for pixel in frame.pixels_mut().chunks_exact_mut(4) {
-            for channel in &mut pixel[..3] {
-                *state ^= *state << 13;
-                *state ^= *state >> 7;
-                *state ^= *state << 17;
-                *channel = (128i16 + (*state % 49) as i16 - 24) as u8;
-            }
-            pixel[3] = 255;
-        }
-    }
 
     #[test]
     fn rated_h264_uses_openh264_before_media_foundation_on_windows() {
@@ -2352,16 +2427,54 @@ mod tests {
         assert!(failed.is_err());
     }
 
-    /// A constant-bitrate H.264 export holds the requested rate. HEVC still
-    /// needs to open, but Kvazaar's measured rate is not guaranteed yet.
-    /// Film grain resembles real footage better than full-range noise.
+    /// Paints the rate tests' picture: a texture of 16-pixel blocks panning
+    /// three pixels a frame under fresh grain of +/-8, so the encoder has
+    /// motion to predict and detail it cannot, as in footage.
+    ///
+    /// Not noise in every byte. At 320x176 that costs near the raw rate,
+    /// about 20 Mb/s, at any quantiser, so no target measured the rate
+    /// control: below 6 Mb/s Media Foundation and OpenH264 sat on noise's
+    /// floor, and Kvazaar starts from its estimate for ordinary pictures
+    /// and takes three or four seconds to come down from it (17, 15, 13,
+    /// then 12 Mb/s a second asked for 12). On this picture at 1 Mb/s, in
+    /// two seconds, Kvazaar comes out at 91%, OpenH264 at 100% and Media
+    /// Foundation's H.264 at 103% in CBR, 83% in its VBR - measured with
+    /// the vendored FFmpeg, as each is configured here.
+    fn paint_footage(frame: &mut Frame, index: u32, grain: &mut u64) {
+        fn mix(mut z: u64) -> u64 {
+            z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+        let width = frame.width() as usize;
+        let pan = index as usize * 3;
+        for (i, pixel) in frame.pixels_mut().chunks_exact_mut(4).enumerate() {
+            let (x, y) = (i % width + pan, i / width);
+            let colour = mix((((x / 16) as u64) << 32) | (y / 16) as u64);
+            *grain ^= *grain << 13;
+            *grain ^= *grain >> 7;
+            *grain ^= *grain << 17;
+            for (k, channel) in pixel[..3].iter_mut().enumerate() {
+                let base = i32::from((colour >> (8 * k)) as u8);
+                let jitter = i32::from((*grain >> (8 * k)) as u8) % 17 - 8;
+                *channel = (base + jitter).clamp(0, 255) as u8;
+            }
+            pixel[3] = 255;
+        }
+    }
+
+    /// A constant-bitrate export opens with each encoder the machine has for
+    /// H.264 and HEVC and comes out near the rate asked for, on a picture
+    /// that costs more than the target, so the encoder has to hold it
+    /// rather than coast under. See `paint_footage` for why that picture.
     #[test]
     fn a_cbr_export_opens_and_holds_its_rate() {
         let dir =
             std::env::temp_dir().join(format!("concat-media-cbr-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
-        const KBPS: u32 = 2_000;
+        const KBPS: u32 = 1_000;
         const FRAMES: u32 = 60;
         for codec in [VideoCodec::H264, VideoCodec::Hevc] {
             if !codec.encodable() {
@@ -2377,28 +2490,25 @@ mod tests {
                 hardware: false,
                 ..EncodeOptions::default()
             };
+            // 176 rows, not 180: HEVC on the CPU is Kvazaar, which takes
+            // sizes in eights.
             let mut encoder = Encoder::create(&path, 320, 176, FrameRate::THIRTY, &options)
                 .unwrap_or_else(|error| panic!("{codec:?} CBR opens: {error}"));
+            let name = encoder.encoder_name().to_owned();
             let mut frame = Frame::black(320, 176);
-            let mut state = 0x2545_F491_4F6C_DD1D_u64;
-            for _ in 0..FRAMES {
-                fill_film_grain(&mut frame, &mut state);
+            let mut grain = 0x2545_F491_4F6C_DD1D_u64;
+            for index in 0..FRAMES {
+                paint_footage(&mut frame, index, &mut grain);
                 encoder.write_frame(&frame).expect("writes");
             }
             encoder.finish().expect("finishes");
             let kbps = std::fs::metadata(&path).expect("written").len() as f64 * 8.0
                 / 1000.0
                 / (f64::from(FRAMES) / 30.0);
-            if codec == VideoCodec::H264 {
-                assert!(
-                    (f64::from(KBPS) * 0.7..=f64::from(KBPS) * 1.3).contains(&kbps),
-                    "{codec:?} CBR at {KBPS} kb/s came out at {kbps:.0} kb/s"
-                );
-            } else {
-                eprintln!(
-                    "{codec:?} CBR opened at {KBPS} kb/s; measured {kbps:.0} kb/s (rate not asserted)"
-                );
-            }
+            assert!(
+                (f64::from(KBPS) * 0.7..=f64::from(KBPS) * 1.3).contains(&kbps),
+                "{codec:?} CBR at {KBPS} kb/s came out at {kbps:.0} kb/s on {name}"
+            );
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2406,14 +2516,14 @@ mod tests {
     /// An average-bitrate export, the export sheet's: grainy pictures come
     /// out near the target, so the size the sheet promised is the size
     /// written, and calm ones well under it, not padded up to it as CBR
-    /// pads.
+    /// pads. Busy is the CBR test's picture (see `paint_footage`).
     #[test]
     fn an_average_export_keeps_near_its_target_and_does_not_pad() {
         let dir =
             std::env::temp_dir().join(format!("concat-media-abr-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
-        const KBPS: u32 = 2_000;
+        const KBPS: u32 = 1_000;
         const FRAMES: u32 = 60;
         let seconds = f64::from(FRAMES) / 30.0;
         for codec in [VideoCodec::H264, VideoCodec::Hevc] {
@@ -2429,26 +2539,30 @@ mod tests {
                 let path = dir.join(format!("{}-{noisy}.mp4", codec.name()));
                 let mut encoder = Encoder::create(&path, 320, 176, FrameRate::THIRTY, &options)
                     .unwrap_or_else(|error| panic!("{codec:?} average opens: {error}"));
+                let name = encoder.encoder_name().to_owned();
                 let mut frame = Frame::black(320, 176);
-                let mut state = 0x2545_F491_4F6C_DD1D_u64;
-                for _ in 0..FRAMES {
+                let mut grain = 0x2545_F491_4F6C_DD1D_u64;
+                for index in 0..FRAMES {
                     if noisy {
-                        fill_film_grain(&mut frame, &mut state);
+                        paint_footage(&mut frame, index, &mut grain);
                     }
                     encoder.write_frame(&frame).expect("writes");
                 }
                 encoder.finish().expect("finishes");
-                std::fs::metadata(&path).expect("written").len() as f64 * 8.0 / 1000.0 / seconds
+                let kbps = std::fs::metadata(&path).expect("written").len() as f64 * 8.0
+                    / 1000.0
+                    / seconds;
+                (kbps, name)
             };
-            let busy = rate_of(true);
+            let (busy, name) = rate_of(true);
             assert!(
                 (f64::from(KBPS) * 0.6..=f64::from(KBPS) * 1.6).contains(&busy),
-                "{codec:?} averaging {KBPS} kb/s came out at {busy:.0} kb/s on film grain"
+                "{codec:?} averaging {KBPS} kb/s came out at {busy:.0} kb/s on footage, on {name}"
             );
-            let calm = rate_of(false);
+            let (calm, name) = rate_of(false);
             assert!(
                 calm < f64::from(KBPS) * 0.5,
-                "{codec:?} averaging {KBPS} kb/s padded a black picture to {calm:.0} kb/s"
+                "{codec:?} averaging {KBPS} kb/s padded a black picture to {calm:.0} kb/s, on {name}"
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -2990,8 +3104,10 @@ mod tests {
             hardware: true,
             ..EncodeOptions::default()
         };
-        let mut encoder =
-            Encoder::create(&path, 1280, 720, FrameRate::THIRTY, &options).expect("creates");
+        let Ok(mut encoder) = Encoder::create(&path, 1280, 720, FrameRate::THIRTY, &options) else {
+            eprintln!("no ten-bit HEVC encoder opens here; skipped");
+            return;
+        };
         if encoder.encoder_name() != "hevc_amf" {
             eprintln!("{} chosen, not AMF; skipped", encoder.encoder_name());
             let _ = std::fs::remove_file(&path);
@@ -3098,8 +3214,16 @@ mod tests {
                     threads: 0,
                     software_only: false,
                 };
-                let mut encoder = Encoder::create(&path, 256, 256, FrameRate::THIRTY, &options)
-                    .unwrap_or_else(|error| panic!("{} {ten_bit}: {error}", codec.label()));
+                // Hardware encoders such as NVENC require at least 256x256.
+                let mut encoder = match Encoder::create(&path, 256, 256, FrameRate::THIRTY, &options)
+                {
+                    Ok(encoder) => encoder,
+                    Err(error) if ten_bit && codec.ten_bit_only_on_hardware() => {
+                        eprintln!("{} at ten bits: {error}; skipped", codec.label());
+                        continue;
+                    }
+                    Err(error) => panic!("{} {ten_bit}: {error}", codec.label()),
+                };
                 let mut frame = Frame::black(256, 256);
                 frame.fill([200, 40, 40, 255]);
                 for _ in 0..4 {
@@ -3166,16 +3290,21 @@ mod tests {
             for (signal, level) in [(Signal::Hlg, 0.75f64), (Signal::Pq, 0.58)] {
                 let path = std::env::temp_dir()
                     .join(format!("concat-encode-hdr-{}-{signal:?}.mp4", codec.name()));
-                // Hardware encoders such as NVENC require at least 256x256.
-                let mut encoder = Encoder::create_hdr(
+                let mut encoder = match Encoder::create_hdr(
                     &path,
                     256,
                     256,
                     FrameRate::THIRTY,
                     &options(codec),
                     signal,
-                )
-                .unwrap_or_else(|error| panic!("{} {signal:?}: {error}", codec.label()));
+                ) {
+                    Ok(encoder) => encoder,
+                    Err(error) if codec.ten_bit_only_on_hardware() => {
+                        eprintln!("{} {signal:?}: {error}; skipped", codec.label());
+                        break;
+                    }
+                    Err(error) => panic!("{} {signal:?}: {error}", codec.label()),
+                };
                 let value = (level * 65_535.0).round() as u16;
                 let pixel: Vec<u8> = [value, value, value, u16::MAX]
                     .iter()

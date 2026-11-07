@@ -329,6 +329,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // offered: a drag in from the system is a desk's (see platform.rs).
     app.set_app_version(env!("CARGO_PKG_VERSION").into());
     app.set_can_drop(cfg!(not(any(target_os = "android", target_os = "ios"))));
+    app.set_capcut(concat_host::capcut::drafts_folder().is_some());
 
     // The user's own packages - imported looks, and any effect folder they
     // or the community wrote - sit beside the built-ins from the first
@@ -406,6 +407,28 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.global::<Theme>()
         .set_ui_scale(studio.prefs.scale_index() as i32);
 
+    // The window at the size the last session left it, maximised if it
+    // was, while Settings > General remembers the layout. A size too big
+    // for this screen is maximised by `platform::fit_to_screen`.
+    if !phone
+        && let Some(layout) = studio
+            .prefs
+            .layout
+            .as_ref()
+            .filter(|_| studio.prefs.remembers_layout())
+    {
+        if let (Some(width), Some(height)) = (layout.width, layout.height)
+            && width.is_finite()
+            && height.is_finite()
+        {
+            app.window()
+                .set_size(slint::LogicalSize::new(width.max(900.0), height.max(560.0)));
+        }
+        if layout.maximized {
+            app.window().set_maximized(true);
+        }
+    }
+
     let shell = Rc::new(Shell {
         app: app.as_weak(),
         studio: RefCell::new(studio),
@@ -470,6 +493,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
         app.set_caption_models(ModelRc::from(models.caption_models.clone()));
         app.set_caption_languages(ModelRc::from(models.caption_languages.clone()));
+        editor.set_caption_models(ModelRc::from(models.caption_models.clone()));
+        editor.set_caption_languages(ModelRc::from(models.caption_languages.clone()));
         app.set_speech_models(ModelRc::from(models.speech_models.clone()));
         app.set_speech_model_details(ModelRc::from(models.speech_model_details.clone()));
         app.set_speech_voices(ModelRc::from(models.speakers.clone()));
@@ -617,6 +642,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_titlebar_close(|| {
         log::info!("close: titlebar X pressed");
         Shell::with(|shell, app| {
+            shell.studio.borrow_mut().save_layout(app.window());
             let outcome = close_window(
                 || shell.studio.borrow_mut().close_project(),
                 || {
@@ -643,6 +669,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         log::info!("close: system close request (Alt+F4 / taskbar)");
         let saved = std::cell::Cell::new(true);
         Shell::with(|shell, app| {
+            shell.studio.borrow_mut().save_layout(app.window());
             let outcome = close_window(
                 || shell.studio.borrow_mut().close_project(),
                 || {
@@ -710,8 +737,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     macro_rules! on_lanes {
         ($($handler:tt)*) => { handler!(publish_lanes, $($handler)*) };
     }
+    // A dock change is remembered for the next launch, too.
     macro_rules! on_dock {
-        ($($handler:tt)*) => { handler!(publish_dock, $($handler)*) };
+        ($($handler:tt)*) => { handler!(publish_dock_remembered, $($handler)*) };
     }
 
     let editor = app.global::<Editor>();
@@ -766,6 +794,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     app.on_start_open(on_window!(|state| {
         state.handle(Msg::Start(StartMsg::Open));
+    }));
+    app.on_start_import_capcut(on_window!(|state| {
+        state.handle(Msg::Start(StartMsg::ImportCapcut));
     }));
     app.on_start_open_recent(on_window!(|state, path: SharedString| {
         state.handle(Msg::Start(StartMsg::OpenRecent(path.to_string())));
@@ -1393,6 +1424,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_clip_reset_words(on_lanes!(|state| {
         state.reset_words();
     }));
+    editor.on_clip_shape_colour(on_lanes!(|state, which: i32, value: slint::Color| {
+        state.clip_shape_colour(which, value);
+    }));
     editor.on_clip_set_colour(on_lanes!(
         |state, field: ClipTextField, value: slint::Color| {
             state.clip_set_colour(field, value);
@@ -1659,8 +1693,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_clip_enhance_set(on_window!(|state, on: bool| {
         state.clip_enhance_set(on);
     }));
-    editor.on_clip_enhance_size(on_window!(|state, index: i32| {
-        state.clip_enhance_size(index);
+    editor.on_clip_enhance_scale(on_window!(|state, scale: f32| {
+        state.clip_enhance_scale(scale);
     }));
     editor.on_clip_enhance_strength(on_window!(|state, strength: f32| {
         state.clip_enhance_strength(strength);
@@ -1936,6 +1970,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_relink_all(on_window!(|state| {
         state.handle(Msg::Relink(RelinkMsg::RelinkAll));
     }));
+    app.on_relink_remove(on_window!(|state, id: SharedString| {
+        state.handle(Msg::Relink(RelinkMsg::Remove(id.to_string())));
+    }));
     app.on_relink_dismiss(on_window!(|state| {
         state.handle(Msg::Relink(RelinkMsg::Dismiss));
     }));
@@ -2126,6 +2163,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_settings_proxies_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::ProxiesChanged(on)));
     }));
+    app.on_settings_remember_layout_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Settings(SettingsMsg::RememberLayoutChanged(on)));
+    }));
     app.on_settings_gpu_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::GpuChanged(on)));
     }));
@@ -2285,6 +2325,43 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_captions_export_srt(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::ExportSrt));
     }));
+    // The same answers from the library's Captions page, on a desk.
+    editor.on_captions_shown(on_window!(|state, shown: bool| {
+        state.handle(Msg::Captions(CaptionsMsg::Shown(shown)));
+    }));
+    editor.on_captions_voice_toggled(on_window!(|state, on: bool| {
+        state.handle(Msg::Captions(CaptionsMsg::VoiceToggled(on)));
+    }));
+    editor.on_captions_source_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::SourceChanged(index)));
+    }));
+    editor.on_captions_text_edited(on_window!(|state, text: SharedString| {
+        state.handle(Msg::Captions(CaptionsMsg::TextEdited(text.to_string())));
+    }));
+    editor.on_captions_model_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::ModelChanged(index)));
+    }));
+    editor.on_captions_language_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::LanguageChanged(index)));
+    }));
+    editor.on_captions_placement_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::PlacementChanged(index)));
+    }));
+    editor.on_captions_size_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::SizeChanged(index)));
+    }));
+    editor.on_captions_begin(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::Begin));
+    }));
+    editor.on_captions_cancel(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::Cancel));
+    }));
+    editor.on_captions_import_srt(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::ImportSrt));
+    }));
+    editor.on_captions_export_srt(on_window!(|state| {
+        state.handle(Msg::Captions(CaptionsMsg::ExportSrt));
+    }));
     app.on_speech_closed(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Close));
     }));
@@ -2410,6 +2487,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 }
                 if action == "close-window" {
                     log::info!("close: File > Close Window");
+                    shell.studio.borrow_mut().save_layout(app.window());
                     let outcome = close_window(
                         || shell.studio.borrow_mut().close_project(),
                         || {
@@ -2731,7 +2809,7 @@ fn typing(app: &App) -> bool {
 
 /// Adds a pane of `kind` beside the largest seat: to its right when that
 /// seat is wide enough to halve across, else below it.
-fn add_pane(state: &mut Studio, kind: PaneKind) {
+pub(crate) fn add_pane(state: &mut Studio, kind: PaneKind) {
     let seats = state.dock_layout().seats;
     let Some(biggest) = seats
         .iter()
@@ -2818,9 +2896,17 @@ const SAFE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
 /// on, and on Android, where the safe way is OpenGL ES in place of Vulkan:
 /// a phone whose Vulkan driver dies on the first frame closed on every
 /// launch, and the backend's fall back to OpenGL ES only catches a surface
-/// that fails to open (#507). A Mac has neither.
+/// that fails to open (#507). A Mac draws the window on Skia's own
+/// rasteriser and keeps the compositor on Metal: an Iris Pro or a patched
+/// Radeon whose Metal compiler failed as the device opened never showed a
+/// window at all (#600, #423).
 fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
-    if !cfg!(any(windows, target_os = "linux", target_os = "android")) {
+    if !cfg!(any(
+        windows,
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos"
+    )) {
         return (None, false);
     }
     let Ok(dirs) = concat_host::AppDirs::locate() else {
@@ -2852,7 +2938,7 @@ fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
 /// squares, where the switch itself cannot be seen. The switch turns it
 /// back on. Nothing where [`safe_start`] has no software rasteriser.
 pub fn draw_in_software() {
-    if !cfg!(any(windows, target_os = "linux")) {
+    if !cfg!(any(windows, target_os = "linux", target_os = "macos")) {
         log::warn!("start: --software has no software rasteriser to draw on here");
         return;
     }
