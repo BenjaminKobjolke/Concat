@@ -3215,15 +3215,15 @@ mod tests {
                     software_only: false,
                 };
                 // Hardware encoders such as NVENC require at least 256x256.
-                let mut encoder = match Encoder::create(&path, 256, 256, FrameRate::THIRTY, &options)
-                {
-                    Ok(encoder) => encoder,
-                    Err(error) if ten_bit && codec.ten_bit_only_on_hardware() => {
-                        eprintln!("{} at ten bits: {error}; skipped", codec.label());
-                        continue;
-                    }
-                    Err(error) => panic!("{} {ten_bit}: {error}", codec.label()),
-                };
+                let mut encoder =
+                    match Encoder::create(&path, 256, 256, FrameRate::THIRTY, &options) {
+                        Ok(encoder) => encoder,
+                        Err(error) if ten_bit && codec.ten_bit_only_on_hardware() => {
+                            eprintln!("{} at ten bits: {error}; skipped", codec.label());
+                            continue;
+                        }
+                        Err(error) => panic!("{} {ten_bit}: {error}", codec.label()),
+                    };
                 let mut frame = Frame::black(256, 256);
                 frame.fill([200, 40, 40, 255]);
                 for _ in 0..4 {
