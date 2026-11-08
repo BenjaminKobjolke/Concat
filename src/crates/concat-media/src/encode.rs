@@ -240,9 +240,7 @@ impl VideoCodec {
                 "hevc_qsv",
                 "hevc_amf",
             ],
-            VideoCodec::Hevc if hardware => {
-                &["hevc_nvenc", "hevc_qsv", "hevc_amf", "libkvazaar"]
-            }
+            VideoCodec::Hevc if hardware => &["hevc_nvenc", "hevc_qsv", "hevc_amf", "libkvazaar"],
             VideoCodec::Hevc => &["libkvazaar", "hevc_nvenc", "hevc_qsv", "hevc_amf"],
             VideoCodec::Av1 if macos => &["libsvtav1", "libaom-av1"],
             VideoCodec::Av1 if hardware => {
@@ -2882,7 +2880,10 @@ mod tests {
         // keeps it as the last fallback; Windows puts Media Foundation
         // after Kvazaar before falling back to the chips on a CPU export.
         if cfg!(any(target_os = "windows", target_os = "linux")) {
-            assert_eq!(VideoCodec::Hevc.encoders(false).first(), Some(&"libkvazaar"));
+            assert_eq!(
+                VideoCodec::Hevc.encoders(false).first(),
+                Some(&"libkvazaar")
+            );
             assert_eq!(VideoCodec::Hevc.encoders(true).last(), Some(&"libkvazaar"));
             for hardware in [false, true] {
                 assert_eq!(
