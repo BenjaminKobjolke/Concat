@@ -1348,7 +1348,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         ramp.on_choose(on_lanes!(|state, index: i32, add: bool| {
             state.speed_choose(index, add);
         }));
-        ramp.on_choose_box(on_lanes!(|state, x0: f32, y0: f32, x1: f32, y1: f32, add: bool| {
+        ramp.on_choose_box(on_lanes!(|state,
+                                      x0: f32,
+                                      y0: f32,
+                                      x1: f32,
+                                      y1: f32,
+                                      add: bool| {
             state.speed_choose_box([x0, y0, x1, y1], add);
         }));
         ramp.on_choose_all(on_lanes!(|state, all: bool| {
