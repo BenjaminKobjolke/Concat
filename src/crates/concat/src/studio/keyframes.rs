@@ -63,6 +63,11 @@ impl Studio {
                 })
                 .collect(),
         );
+        let chosen = self.speed_chosen_now();
+        sync(
+            &models.speed_chosen,
+            (0..points.len()).map(|index| chosen.contains(&index)).collect(),
+        );
         ramp.set_curved(curve.is_some());
         ramp.set_smooth(curve.is_none_or(concat_project::speed::is_smooth));
         ramp.set_path(speed_ramp::path(points).into());
@@ -1122,6 +1127,8 @@ impl Studio {
             mask_roundness: shown(clip, model::KeyProperty::MaskRoundness, at) as f32,
             mask_feather: shown(clip, model::KeyProperty::MaskFeather, at) as f32,
             fade_in: clip.fade_in as f32,
+            wave_head: self.wave_end(clip, false),
+            wave_tail: self.wave_end(clip, true),
             fade_out: clip.fade_out as f32,
             content: text.content.as_str().into(),
             font_family: text.font_family.trim_matches('"').into(),
@@ -1200,6 +1207,20 @@ impl Studio {
                 .unwrap_or(-1.0),
             stabilize_zoom: steady.map_or(-1.0, |(zoom, _)| zoom as f32),
             stabilize_needed: steady.map_or(-1.0, |(_, needed)| needed as f32),
+            voice_mode: match clip.voice {
+                None => 0,
+                Some(mix) if mix.voice == 1.0 && mix.background == 0.0 => 1,
+                Some(mix) if mix.voice == 0.0 && mix.background == 1.0 => 2,
+                Some(_) => 3,
+            },
+            voice_level: clip.voice.map_or(1.0, |mix| mix.voice as f32),
+            background_level: clip.voice.map_or(1.0, |mix| mix.background as f32),
+            voice_progress: self.voice_progress(clip).0,
+            voice_fetching: self.voice_progress(clip).1,
+            voice_kind: match clip.voice.unwrap_or_default().kind {
+                model::VoiceKind::Vocals => 0,
+                model::VoiceKind::Speech => 1,
+            },
             enhance_progress: self
                 .enhance_jobs
                 .get(&clip.id)
@@ -1610,20 +1631,10 @@ impl Studio {
 
         app.set_on_start(self.on_start);
         app.set_project_name(self.project_name.as_str().into());
-        app.set_project_status(
-            if self.dirty {
-                "unsaved changes"
-            } else {
-                "saved"
-            }
-            .into(),
-        );
-        app.set_toast(ToastData {
-            token: self.toast.token,
-            message: self.toast.message.as_str().into(),
-            failed: self.toast.failed,
+        self.publish_status(app);
+        set_changed(app.get_start(), self.start.data(), same_start, |data| {
+            app.set_start(data)
         });
-        app.set_start(self.start.data());
         app.set_recents_total(self.recents.len() as i32);
         sync(
             &models.recents,
@@ -1665,28 +1676,7 @@ impl Studio {
         // The Text page's presets: the look each card draws its name in.
         // All of them for the phone's one shelf; on the desktop, Styles
         // has the Latin ones and Languages, under it, the rest.
-        let cards: Vec<TextPresetData> = self
-            .text_presets
-            .iter()
-            .map(|preset| {
-                let plate = colour_of(&preset.style.background);
-                TextPresetData {
-                    id: preset.id.as_str().into(),
-                    name: preset.name.as_str().into(),
-                    language: preset.language.as_str().into(),
-                    sample: preset.sample.as_str().into(),
-                    family: preset.style.font_family.trim_matches('"').into(),
-                    weight: preset.style.font_weight.round() as i32,
-                    italic: preset.style.italic,
-                    fill: colour_of(&preset.style.color),
-                    plate,
-                    plated: plate.alpha() > 0,
-                    stroke: colour_of(&preset.style.stroke_color),
-                    stroke_width: preset.style.stroke_width as f32,
-                    align: align_of(preset.style.align),
-                }
-            })
-            .collect();
+        let cards: Vec<TextPresetData> = self.text_presets.iter().map(preset_card).collect();
         let latin = |card: &TextPresetData| card.language.eq_ignore_ascii_case("latin");
         sync(
             &models.style_presets,
@@ -1768,13 +1758,28 @@ impl Studio {
         sync(&models.menu, rows);
         editor.set_menu_token(self.menu_token);
 
-        app.set_export(self.export.data(self));
-        app.set_settings(self.settings.data(self));
+        set_changed(
+            app.get_export(),
+            self.export.data(self),
+            same_export,
+            |data| app.set_export(data),
+        );
+        set_changed(
+            app.get_settings(),
+            self.settings.data(self),
+            same_settings,
+            |data| app.set_settings(data),
+        );
         sync(&models.transcribers, self.settings.transcriber_rows());
         sync(&models.voices, self.settings.voice_rows());
         sync(&models.versions, self.settings.version_rows());
         sync(&models.version_details, self.settings.version_details());
-        app.set_relink(self.relink.data(self));
+        set_changed(
+            app.get_relink(),
+            self.relink.data(self),
+            same_relink,
+            |data| app.set_relink(data),
+        );
         app.set_confirm(self.confirm_data());
 
         // The speech sheets, and the lists they choose from.
@@ -1788,8 +1793,38 @@ impl Studio {
         );
         sync(&models.caption_languages, self.captions.language_rows(self));
         let captions = self.captions.data(self);
-        app.global::<Editor>().set_captions_sheet(captions.clone());
-        app.set_captions(captions);
+        // The captions' style picker: the presets its search lets through,
+        // by name or by the writing they are for, and the one picked.
+        let query = self.captions.style_query.trim().to_lowercase();
+        sync(
+            &models.caption_styles,
+            self.text_presets
+                .iter()
+                .filter(|preset| {
+                    query.is_empty()
+                        || preset.name.to_lowercase().contains(&query)
+                        || preset.language.to_lowercase().contains(&query)
+                })
+                .map(preset_card)
+                .collect(),
+        );
+        let picked = crate::panes::captions::caption_style_id(self);
+        if let Some(preset) = self.text_presets.iter().find(|preset| preset.id == picked) {
+            let styles = app.global::<crate::ui::CaptionStyles>();
+            if styles.get_current().id != preset.id.as_str() {
+                styles.set_current(preset_card(preset));
+            }
+        }
+        let editor = app.global::<Editor>();
+        set_changed(
+            editor.get_captions_sheet(),
+            captions.clone(),
+            same_captions,
+            |data| editor.set_captions_sheet(data),
+        );
+        set_changed(app.get_captions(), captions, same_captions, |data| {
+            app.set_captions(data)
+        });
         let voices = installed(&self.settings.voices);
         sync(
             &models.speech_models,
@@ -2079,6 +2114,26 @@ impl Studio {
                 Glyph::TextMark,
                 "",
                 self.clip_has_sound(clip),
+            ));
+            rows.push(rule());
+            // Voice isolation, both ways, one click each: ticked when it is
+            // what the clip plays, and chosen again to play it as recorded
+            // (#120).
+            let voiced = self.clip_has_sound(clip) && !locked;
+            let mix = clip.voice;
+            rows.push(check(
+                "voice-keep",
+                &t("voice.keepOnly"),
+                "",
+                mix.is_some_and(|mix| mix.voice > 0.0 && mix.background == 0.0),
+                voiced,
+            ));
+            rows.push(check(
+                "voice-remove",
+                &t("voice.remove"),
+                "",
+                mix.is_some_and(|mix| mix.voice == 0.0),
+                voiced,
             ));
             rows.push(rule());
         }
@@ -2645,5 +2700,26 @@ impl Studio {
         let timeline_id = self.project().active_timeline_id.clone();
         self.apply(Command::SetTimelineVideo { timeline_id, video });
         self.request_preview();
+    }
+}
+
+/// A text preset as its card draws it: enough of the look to set its
+/// sample in. The Text page's shelves and the captions' style picker.
+pub(crate) fn preset_card(preset: &TextPreset) -> TextPresetData {
+    let plate = colour_of(&preset.style.background);
+    TextPresetData {
+        id: preset.id.as_str().into(),
+        name: preset.name.as_str().into(),
+        language: preset.language.as_str().into(),
+        sample: preset.sample.as_str().into(),
+        family: preset.style.font_family.trim_matches('"').into(),
+        weight: preset.style.font_weight.round() as i32,
+        italic: preset.style.italic,
+        fill: colour_of(&preset.style.color),
+        plate,
+        plated: plate.alpha() > 0,
+        stroke: colour_of(&preset.style.stroke_color),
+        stroke_width: preset.style.stroke_width as f32,
+        align: align_of(preset.style.align),
     }
 }

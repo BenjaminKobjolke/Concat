@@ -351,6 +351,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     studio.watch_packages();
     let dark = studio.prefs.dark.unwrap_or(true);
     app.global::<Theme>().set_dark(dark);
+    // Windows puts a dialog's OK before its Cancel; macOS and Linux after.
+    app.global::<Theme>().set_ok_first(cfg!(windows));
     // The accent is remembered by name and the names live on the Theme
     // global, so the index is looked up there rather than kept in Rust too.
     // A remembered hex is a colour picked by hand, which is the slot past
@@ -486,6 +488,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             .set_rows(ModelRc::from(models.key_editor_rows.clone()));
         let ramp = app.global::<SpeedRamp>();
         ramp.set_points(ModelRc::from(models.speed_points.clone()));
+        ramp.set_chosen(ModelRc::from(models.speed_chosen.clone()));
         ramp.set_presets(ModelRc::from(models.speed_presets.clone()));
         editor.set_key_marks(ModelRc::from(models.key_marks.clone()));
         app.global::<Library>()
@@ -528,6 +531,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         editor.set_font_families(ModelRc::from(models.font_families.clone()));
         app.global::<FontSearch>()
             .set_matches(ModelRc::from(models.font_matches.clone()));
+        app.global::<crate::ui::CaptionStyles>()
+            .set_matches(ModelRc::from(models.caption_styles.clone()));
     }
 
     // Settings > About's block, gathered once: nothing in it changes while
@@ -1340,6 +1345,24 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         ramp.on_remove(on_lanes!(|state, index: i32| {
             state.speed_curve_remove(index);
         }));
+        ramp.on_choose(on_lanes!(|state, index: i32, add: bool| {
+            state.speed_choose(index, add);
+        }));
+        ramp.on_choose_box(on_lanes!(|state, x0: f32, y0: f32, x1: f32, y1: f32, add: bool| {
+            state.speed_choose_box([x0, y0, x1, y1], add);
+        }));
+        ramp.on_choose_all(on_lanes!(|state, all: bool| {
+            state.speed_choose_all(all);
+        }));
+        ramp.on_grab(on_lanes!(|state| {
+            state.speed_grab();
+        }));
+        ramp.on_drag_chosen(on_lanes!(|state, dx: f32, dy: f32| {
+            state.speed_drag_chosen(dx, dy);
+        }));
+        ramp.on_remove_chosen(on_lanes!(|state| {
+            state.speed_remove_chosen();
+        }));
         ramp.on_preset_chosen(on_lanes!(|state, index: i32| {
             state.speed_curve_preset(index);
         }));
@@ -1519,6 +1542,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.global::<FontSearch>()
         .on_query_changed(on_window!(|state, text: SharedString| {
             state.font_query = text.to_string();
+        }));
+    app.global::<crate::ui::CaptionStyles>()
+        .on_query_changed(on_window!(|state, text: SharedString| {
+            state.captions.style_query = text.to_string();
+        }));
+    app.global::<crate::ui::CaptionStyles>()
+        .on_picked(on_window!(|state, id: SharedString| {
+            state.prefs.caption_style = Some(id.to_string());
+            state.prefs.save(&state.host.dirs);
         }));
     app.global::<Meters>().on_clip_cleared({
         let weak = app.as_weak();
@@ -1969,6 +2001,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
 
     app.on_relink_all(on_window!(|state| {
         state.handle(Msg::Relink(RelinkMsg::RelinkAll));
+    }));
+    app.on_relink_locate(on_window!(|state, id: SharedString| {
+        state.handle(Msg::Relink(RelinkMsg::Locate(id.to_string())));
     }));
     app.on_relink_remove(on_window!(|state, id: SharedString| {
         state.handle(Msg::Relink(RelinkMsg::Remove(id.to_string())));
