@@ -223,17 +223,27 @@ impl VideoCodec {
             VideoCodec::H264 if hardware => &["h264_nvenc", "h264_qsv", "h264_amf", "libopenh264"],
             VideoCodec::H264 => &["libopenh264"],
             VideoCodec::Hevc if macos => &["hevc_videotoolbox"],
-            // Kvazaar last: the CPU's HEVC where no chip and no Media
-            // Foundation encoder takes it, and where a chip that stalled
-            // part way through hands the export on.
-            VideoCodec::Hevc if windows => &[
+            // With hardware preferred, Kvazaar is last: the CPU's HEVC
+            // where no chip or Media Foundation encoder takes it, and
+            // where a chip that stalled part way through hands the export on.
+            VideoCodec::Hevc if windows && hardware => &[
                 "hevc_nvenc",
                 "hevc_qsv",
                 "hevc_amf",
                 "hevc_mf",
                 "libkvazaar",
             ],
-            VideoCodec::Hevc => &["hevc_nvenc", "hevc_qsv", "hevc_amf", "libkvazaar"],
+            VideoCodec::Hevc if windows => &[
+                "libkvazaar",
+                "hevc_mf",
+                "hevc_nvenc",
+                "hevc_qsv",
+                "hevc_amf",
+            ],
+            VideoCodec::Hevc if hardware => {
+                &["hevc_nvenc", "hevc_qsv", "hevc_amf", "libkvazaar"]
+            }
+            VideoCodec::Hevc => &["libkvazaar", "hevc_nvenc", "hevc_qsv", "hevc_amf"],
             VideoCodec::Av1 if macos => &["libsvtav1", "libaom-av1"],
             VideoCodec::Av1 if hardware => {
                 &["av1_nvenc", "av1_qsv", "av1_amf", "libsvtav1", "libaom-av1"]
@@ -399,8 +409,8 @@ pub struct EncodeOptions {
     /// true either way. Video range unless told otherwise.
     /// https://github.com/jub0t/Concat/issues/103
     pub color_range: ColorRange,
-    /// Let the platform's hardware encoder lead where there is one; see
-    /// [`VideoCodec::encoders`].
+    /// Let the platform's hardware encoder lead where there is one; when
+    /// false, software encoders lead. See [`VideoCodec::encoders`].
     pub hardware: bool,
     /// Threads the encoder may use, or zero to let it count the cores.
     /// Zero for an export; a few for a proxy written while the editor is
@@ -2868,15 +2878,13 @@ mod tests {
         }));
         assert_eq!(asked, ["hevc_mf"]);
 
-        // Windows and Linux end HEVC on Kvazaar and Windows ends H.264 on
-        // OpenH264, with or without hardware: what a stalled chip's export
-        // goes on with.
+        // CPU preference starts HEVC with Kvazaar. Hardware preference
+        // keeps it as the last fallback; Windows puts Media Foundation
+        // after Kvazaar before falling back to the chips on a CPU export.
         if cfg!(any(target_os = "windows", target_os = "linux")) {
+            assert_eq!(VideoCodec::Hevc.encoders(false).first(), Some(&"libkvazaar"));
+            assert_eq!(VideoCodec::Hevc.encoders(true).last(), Some(&"libkvazaar"));
             for hardware in [false, true] {
-                assert_eq!(
-                    VideoCodec::Hevc.encoders(hardware).last(),
-                    Some(&"libkvazaar")
-                );
                 assert_eq!(
                     VideoCodec::H264.encoders(hardware).last(),
                     Some(&"libopenh264")
@@ -2983,6 +2991,21 @@ mod tests {
         assert!(encodable_among(["hevc_nvenc"].into_iter(), |name| panic!(
             "opened {name}"
         )));
+    }
+
+    #[test]
+    fn a_cpu_preference_tries_hevc_software_before_hardware() {
+        if cfg!(any(target_os = "windows", target_os = "linux")) {
+            let software_first = VideoCodec::Hevc.encoders(false);
+            assert_eq!(software_first[0], "libkvazaar");
+
+            let hardware_first = VideoCodec::Hevc.encoders(true);
+            assert!(
+                Family::of(hardware_first[0]).hardware(),
+                "hardware preference starts with {:?}",
+                hardware_first[0]
+            );
+        }
     }
 
     /// The label opens no vendor's encoder: an NVENC an export has not
