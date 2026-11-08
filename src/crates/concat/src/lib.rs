@@ -2656,6 +2656,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                     ClipKind::Image => (theme.get_kind_image(), theme.get_kind_image_well()),
                     ClipKind::Text => (theme.get_kind_text(), theme.get_kind_text_well()),
                     ClipKind::Filter => (theme.get_kind_filter(), theme.get_kind_filter_well()),
+                    ClipKind::Effect => (theme.get_kind_effect(), theme.get_kind_effect_well()),
+                    ClipKind::Adjustment => (
+                        theme.get_kind_adjustment(),
+                        theme.get_kind_adjustment_well(),
+                    ),
+                    ClipKind::Transition => (
+                        theme.get_kind_transition(),
+                        theme.get_kind_transition_well(),
+                    ),
                     ClipKind::Shape => (theme.get_kind_shape(), theme.get_kind_shape_well()),
                     ClipKind::SoundLayer => (
                         theme.get_kind_sound_layer(),
