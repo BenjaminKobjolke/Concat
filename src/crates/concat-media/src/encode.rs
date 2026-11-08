@@ -477,7 +477,7 @@ const KVASAAR_SIZE_ERROR: &str =
     "HEVC on the CPU needs a width and height divisible by 8; choose H.264 or another size";
 
 fn kvazaar_size_valid(width: u32, height: u32) -> bool {
-    width % 8 == 0 && height % 8 == 0
+    width.is_multiple_of(8) && height.is_multiple_of(8)
 }
 
 fn kvazaar_size_error(name: &str, width: u32, height: u32, path: &Path) -> Option<Error> {
