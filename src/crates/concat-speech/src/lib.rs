@@ -29,6 +29,50 @@ pub mod vocals;
 pub use transcribe::Transcriber;
 pub use tts::Speech;
 
+/// Pick a worker count from the machine's cores, memory and platform limits.
+pub(crate) fn workers_for(memory: Option<u64>, worker_bytes: u64) -> usize {
+    if let Some(asked) = std::env::var("CONCAT_ISOLATE_WORKERS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+    {
+        return asked.max(1);
+    }
+    let cores = std::thread::available_parallelism().map_or(2, |count| count.get());
+    let most = if cfg!(any(target_os = "android", target_os = "ios")) {
+        2
+    } else {
+        6
+    };
+    let by_memory = memory.map_or(2, |bytes| (bytes / 8 / worker_bytes) as usize);
+    cores.saturating_sub(2).min(most).min(by_memory).max(1)
+}
+
+/// Open a speech pipeline's audio stream with the shared decode settings.
+pub(crate) fn open_decoder(
+    source: &std::path::Path,
+    stream: Option<usize>,
+    channels: usize,
+    start: f64,
+    duration: Option<f64>,
+    rate: u32,
+) -> Result<concat_media::samples::AudioDecoder, String> {
+    use concat_media::samples::{AudioDecoder, AudioOptions, SampleFormat};
+
+    AudioDecoder::open(
+        source,
+        &AudioOptions {
+            start: (start > 0.0).then_some(start),
+            duration,
+            filters: Vec::new(),
+            rate,
+            channels: channels as u16,
+            format: SampleFormat::F32,
+            stream,
+        },
+    )
+    .map_err(|error| error.to_string())
+}
+
 /// Whether the voices ask for the machine's own accelerator: CoreML, the
 /// Mac's GPU and Neural Engine. Windows and Linux have none in the runtime
 /// the app ships - Windows' is Microsoft's CPU build, and asking it for

@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use concat_media::samples::{AudioDecoder, AudioOptions, SampleFormat};
+use concat_media::samples::AudioDecoder;
 use concat_vision::runtime::{Data, Input, Model};
 use realfft::num_complex::Complex32;
 use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
@@ -96,20 +96,7 @@ const WORKER_BYTES: u64 = 300 << 20;
 /// 8 GB laptop runs three, not six, and stays usable while it works.
 /// `CONCAT_ISOLATE_WORKERS` overrides it, for measuring.
 pub fn workers_for(memory: Option<u64>) -> usize {
-    if let Some(asked) = std::env::var("CONCAT_ISOLATE_WORKERS")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-    {
-        return asked.max(1);
-    }
-    let cores = std::thread::available_parallelism().map_or(2, |count| count.get());
-    let most = if cfg!(any(target_os = "android", target_os = "ios")) {
-        2
-    } else {
-        6
-    };
-    let by_memory = memory.map_or(2, |bytes| (bytes / 8 / WORKER_BYTES) as usize);
-    cores.saturating_sub(2).min(most).min(by_memory).max(1)
+    crate::workers_for(memory, WORKER_BYTES)
 }
 
 /// Splits stream `stream` of `source` (the first when `None`) into
@@ -418,19 +405,7 @@ fn decoder(
     start: f64,
     duration: Option<f64>,
 ) -> Result<AudioDecoder, String> {
-    AudioDecoder::open(
-        source,
-        &AudioOptions {
-            start: (start > 0.0).then_some(start),
-            duration,
-            filters: Vec::new(),
-            rate: RATE,
-            channels: channels as u16,
-            format: SampleFormat::F32,
-            stream,
-        },
-    )
-    .map_err(|error| error.to_string())
+    crate::open_decoder(source, stream, channels, start, duration, RATE)
 }
 
 /// The first pass: the sound once through, mixed to one, framed, and its
