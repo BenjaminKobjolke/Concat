@@ -55,6 +55,8 @@ const RATE: u32 = 48_000;
 /// both sides for the encoder's chroma.
 const WIDTH: u32 = 160;
 const HEIGHT: u32 = 90;
+/// Kvazaar only accepts HEVC pictures whose dimensions are divisible by 8.
+const HEVC_HEIGHT: u32 = 96;
 
 // ── the sources ──
 
@@ -84,6 +86,11 @@ fn second_of_colour(rgb: [u8; 3]) -> Option<u32> {
 /// A silent picture of `seconds` at `rate`, each frame the colour of its
 /// source second.
 fn picture(path: &Path, rate: FrameRate, seconds: u32, codec: VideoCodec) {
+    let height = if codec == VideoCodec::Hevc {
+        HEVC_HEIGHT
+    } else {
+        HEIGHT
+    };
     let options = EncodeOptions {
         codec,
         preset: "ultrafast".to_owned(),
@@ -97,10 +104,10 @@ fn picture(path: &Path, rate: FrameRate, seconds: u32, codec: VideoCodec) {
         software_only: false,
     };
     let mut encoder =
-        Encoder::create(path, WIDTH, HEIGHT, rate, &options).expect("the linked FFmpeg encodes");
+        Encoder::create(path, WIDTH, height, rate, &options).expect("the linked FFmpeg encodes");
     let fps = rate.fps().as_f64();
     let frames = (f64::from(seconds) * fps).round() as u32;
-    let mut frame = Frame::black(WIDTH, HEIGHT);
+    let mut frame = Frame::black(WIDTH, height);
     for index in 0..frames {
         let second = (f64::from(index) / fps).floor() as u32;
         frame.fill(colour_of_second(second));
@@ -2017,21 +2024,32 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
     // HEVC, not the H.264 the other scenarios use: 8-bit H.264 is the one
     // stream the preference leaves on the CPU, which decodes it faster
     // (concat_media::hardware::hardware_wins). HEVC on the CPU is Kvazaar
-    // since x265 left the builds, which takes sizes in eights only, so on
-    // a machine with no chip for it this clip's 90 rows have no encoder.
-    let can_encode = Encoder::create(
-        scratch.path().join("can-encode.mp4"),
-        WIDTH,
-        HEIGHT,
-        FrameRate::THIRTY,
-        &EncodeOptions {
-            codec: VideoCodec::Hevc,
-            preset: "ultrafast".to_owned(),
-            ..EncodeOptions::default()
-        },
-    );
+    // since x265 left the builds, which takes sizes in eights only. The
+    // HEVC fixture uses a 96-row height to fit that constraint.
+    let can_encode = (|| {
+        let mut encoder = Encoder::create(
+            scratch.path().join("can-encode.mp4"),
+            WIDTH,
+            HEVC_HEIGHT,
+            FrameRate::THIRTY,
+            &EncodeOptions {
+                codec: VideoCodec::Hevc,
+                preset: "ultrafast".to_owned(),
+                crf: 16,
+                rate_mode: RateMode::Vbr,
+                bitrate_kbps: 0,
+                ten_bit: false,
+                color_range: concat_media::ColorRange::Limited,
+                hardware: false,
+                threads: 0,
+                software_only: false,
+            },
+        )?;
+        encoder.write_frame(&Frame::black(WIDTH, HEVC_HEIGHT))?;
+        encoder.finish()
+    })();
     if let Err(error) = can_encode {
-        eprintln!("no HEVC encoder opens at {WIDTH}x{HEIGHT} here ({error}); skipped");
+        eprintln!("no HEVC encoder can write {WIDTH}x{HEVC_HEIGHT} here ({error}); skipped");
         return;
     }
     let sources = Sources::make_in(scratch.path(), VideoCodec::Hevc);
