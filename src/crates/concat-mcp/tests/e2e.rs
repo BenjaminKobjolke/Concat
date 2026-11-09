@@ -10,14 +10,14 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
 /// The server process and its two pipes.
 struct Agent {
     child: Child,
-    input: ChildStdin,
+    input: Option<ChildStdin>,
     lines: mpsc::Receiver<Value>,
     next: i64,
 }
@@ -60,15 +60,16 @@ impl Agent {
         });
         Agent {
             child,
-            input,
+            input: Some(input),
             lines,
             next: 1,
         }
     }
 
     fn send(&mut self, message: &Value) {
-        writeln!(self.input, "{message}").expect("writes");
-        self.input.flush().expect("flushes");
+        let input = self.input.as_mut().expect("input is open");
+        writeln!(input, "{message}").expect("writes");
+        input.flush().expect("flushes");
     }
 
     fn line(&self) -> Value {
@@ -110,8 +111,9 @@ impl Agent {
 
     /// Closes the server's input and waits for it to go.
     fn end(mut self) {
-        drop(self.input);
-        for _ in 0..200 {
+        drop(self.input.take());
+        let deadline = Instant::now() + Duration::from_secs(120);
+        while Instant::now() < deadline {
             if let Ok(Some(status)) = self.child.try_wait() {
                 assert!(status.success(), "{status}");
                 return;
@@ -120,6 +122,15 @@ impl Agent {
         }
         let _ = self.child.kill();
         panic!("the server did not exit when its input closed");
+    }
+}
+
+impl Drop for Agent {
+    fn drop(&mut self) {
+        if matches!(self.child.try_wait(), Ok(None)) {
+            let _ = self.child.kill();
+        }
+        let _ = self.child.wait();
     }
 }
 
@@ -385,7 +396,7 @@ fn a_modern_client_discovers_and_is_told_which_versions_are_spoken() {
     assert_eq!(missing["error"]["code"], -32601);
     agent.send(&json!("not an object"));
     assert_eq!(agent.line()["error"]["code"], -32600);
-    writeln!(agent.input, "{{ not json").expect("writes");
+    writeln!(agent.input.as_mut().expect("input is open"), "{{ not json").expect("writes");
     assert_eq!(agent.line()["error"]["code"], -32700);
     agent.end();
 }
