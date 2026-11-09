@@ -1,26 +1,26 @@
 format = 2
 
 [effect]
-id = "concat.rain"
-name = "Rain"
+id = "concat.window-seat"
+name = "Window Seat"
 kind = "filter"
 category = "Cinematic"
-order = 38
+order = 35
 intensity = "haze"
-description = "Cool, hazy and drained, with the wet reflections lifted and blooming. Street-level walks at the end of the day."
+description = "Soft cinema: blacks lifted, the light blooming warm, shadows a touch cool, skin kept. The look of a story told in a window seat."
 
 [[param]]
 key = "haze"
 label = "Haze"
 min = 0
 max = 100
-default = 60
+default = 50
 step = 1
 unit = "%"
 
 [[param]]
-key = "chill"
-label = "Chill"
+key = "warmth"
+label = "Warmth"
 min = 0
 max = 100
 default = 50

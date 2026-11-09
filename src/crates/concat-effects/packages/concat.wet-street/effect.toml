@@ -1,26 +1,26 @@
 format = 2
 
 [effect]
-id = "concat.daydream"
-name = "Daydream"
+id = "concat.wet-street"
+name = "Wet Street"
 kind = "filter"
 category = "Cinematic"
-order = 35
+order = 38
 intensity = "haze"
-description = "Soft cinema: blacks lifted, the light blooming warm, shadows a touch cool, skin kept. The look of a story told in a window seat."
+description = "Cool, hazy and drained, with the wet reflections lifted and blooming. Street-level walks at the end of the day."
 
 [[param]]
 key = "haze"
 label = "Haze"
 min = 0
 max = 100
-default = 50
+default = 60
 step = 1
 unit = "%"
 
 [[param]]
-key = "warmth"
-label = "Warmth"
+key = "chill"
+label = "Chill"
 min = 0
 max = 100
 default = 50
