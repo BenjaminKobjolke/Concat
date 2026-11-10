@@ -315,13 +315,13 @@ pub fn catalogue() -> Vec<Tool> {
         command(
             "clip_update",
             "Change a clip",
-            "Changes only the fields given in `patch`: volume (gain, 1 is unchanged, may exceed 1), fadeIn/fadeOut (seconds), opacity (0-1), muted, flipH/flipV, blend, crop (fractions off each edge, null to remove), videoEffects and filters (the whole chain: a list of {id, params}; ids from `effects_list`), transitionIn ({id, duration} on the cut into the clip, null to remove), text (a title's style, null to remove), mask (see `clip_mask`), background (the clip's own background, null to follow the timeline's) and audioStream.",
+            "Changes only the fields given in `patch`: volume (gain, 1 is unchanged, may exceed 1), fadeIn/fadeOut (seconds), opacity (0-1), muted, flipH/flipV, blend, crop (fractions off each edge, null to remove), videoEffects and filters (the whole chain: a list of {id, params}; ids from `effects_list`), transitionIn ({id, duration} on the cut into the clip, null to remove), text (a title's style, null to remove), masks (the whole mask list; see `clip_mask` for one mask), background (the clip's own background, null to follow the timeline's) and audioStream.",
             "updateClip",
         ),
         Tool {
             name: "clip_mask",
             title: "Mask a clip",
-            description: "Keeps part of a clip's picture with a shape, or with `mask: null` takes the mask off. `shape` is linear, mirror, circle, rectangle, heart or star; `x`/`y` move its centre as fractions of the picture's width/height (positive right/down); `width`/`height` are fractions of the picture's shorter side; `rotation` in degrees; `roundness` (rectangle corners) and `feather` (edge softness) 0-1; `invert` keeps the outside. Fields left out take the default circle's. Animate it with `keyframe_set` on maskX, maskY, maskWidth, maskHeight, maskRotation, maskRoundness or maskFeather.",
+            description: "Replaces a clip's masks with one mask, or with `mask: null` removes them all. Supply a Mask object: `source` defaults to a circle; for a shape use `source: {kind: \"shape\", shape: \"circle\"}` (also linear, mirror, rectangle, heart or star), with optional width, height and roundness. Set x/y, rotation, scale, feather, expand, opacity or invert on the Mask object. Animate its numbers with `keyframe_set` on maskX, maskY, maskRotation, maskScale, maskFeather, maskExpand or maskOpacity.",
             read_only: false,
             destructive: false,
             idempotent: true,
@@ -634,9 +634,11 @@ fn input_schema(schemas: &Schemas, tool: &Tool) -> Option<Value> {
         Action::PreviewFrame => schemas.method("preview.frame"),
         Action::Mask => {
             let update = schemas.command("updateClip")?;
-            let mut mask = schemas.def("ClipMask")?;
+            let mut mask = update
+                .pointer("/properties/patch/properties/masks/items")?
+                .clone();
             mask["type"] = json!(["object", "null"]);
-            mask["description"] = json!("The shape and its numbers, or null to take the mask off.");
+            mask["description"] = json!("A mask object, or null to remove every mask.");
             Some(json!({
                 "type": "object",
                 "properties": {
@@ -766,9 +768,14 @@ fn mask(mut arguments: Value) -> Result<Request, ApiError> {
     if let Some(unknown) = fields.keys().next() {
         return Err(invalid(&format!("unknown field `{unknown}`")));
     }
+    let masks = if mask.is_null() {
+        json!([])
+    } else {
+        json!([mask])
+    };
     edit(
         "updateClip",
-        json!({ "path": path, "clipId": clip, "patch": { "mask": mask } }),
+        json!({ "path": path, "clipId": clip, "patch": { "masks": masks } }),
     )
 }
 
@@ -1069,7 +1076,7 @@ mod tests {
             ),
             (
                 "clip_mask",
-                json!({ "path": "/tmp/Cut", "clipId": "c1", "mask": { "shape": "heart", "width": 0.5, "feather": 0.1, "invert": true } }),
+                json!({ "path": "/tmp/Cut", "clipId": "c1", "mask": { "source": { "kind": "shape", "shape": "heart", "width": 0.5, "height": 0.5 }, "feather": 0.1, "invert": true } }),
             ),
             (
                 "clip_stabilize",
@@ -1167,6 +1174,46 @@ mod tests {
             let root = concat_api::request_schema();
             check(&root, &written, &root, name).unwrap_or_else(|why| panic!("{why}"));
         }
+    }
+
+    #[test]
+    fn clip_mask_maps_one_mask_to_the_api_mask_list() {
+        let mask_value = json!({
+            "source": { "kind": "shape", "shape": "heart", "width": 0.5, "height": 0.5 },
+            "feather": 0.1,
+            "invert": true,
+        });
+
+        let request = mask(json!({
+            "path": "/tmp/Cut",
+            "clipId": "c1",
+            "mask": mask_value,
+        }))
+        .expect("valid mask");
+        let written = serde_json::to_value(request).expect("writes");
+
+        let api_mask = written
+            .pointer("/command/patch/masks/0")
+            .expect("one mask in the API list");
+        assert_eq!(api_mask["source"]["kind"], "shape");
+        assert_eq!(api_mask["source"]["shape"], "heart");
+        assert_eq!(api_mask["source"]["width"], 0.5);
+        assert_eq!(api_mask["source"]["height"], 0.5);
+        assert_eq!(api_mask["feather"], mask_value["feather"]);
+        assert_eq!(api_mask["invert"], mask_value["invert"]);
+    }
+
+    #[test]
+    fn clip_mask_null_removes_all_api_masks() {
+        let request = mask(json!({
+            "path": "/tmp/Cut",
+            "clipId": "c1",
+            "mask": null,
+        }))
+        .expect("null removes masks");
+        let written = serde_json::to_value(request).expect("writes");
+
+        assert_eq!(written.pointer("/command/patch/masks"), Some(&json!([])));
     }
 
     /// A backend whose export reports the statuses it is given, in order,
