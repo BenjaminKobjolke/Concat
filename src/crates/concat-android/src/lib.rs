@@ -189,8 +189,15 @@ mod java {
                 super::picker::files_picked as *mut c_void,
             )
         };
+        let folder_method = unsafe {
+            jni::NativeMethod::from_raw_parts(
+                jni_str!("folderPicked"),
+                jni_str!("(Ljava/lang/String;)V"),
+                super::picker::folder_picked as *mut c_void,
+            )
+        };
         // SAFETY: as above.
-        unsafe { env.register_native_methods(&class, &[method]) }?;
+        unsafe { env.register_native_methods(&class, &[method, folder_method]) }?;
         env.new_global_ref(class)
     }
 }
@@ -213,9 +220,11 @@ mod picker {
     use slint::android::AndroidApp;
 
     type Picked = Box<dyn FnOnce(Vec<PathBuf>) + Send>;
+    type FolderPicked = Box<dyn FnOnce(Option<PathBuf>) + Send>;
 
     /// The pick in flight, waiting for Java to answer.
     static PENDING: Mutex<Option<Picked>> = Mutex::new(None);
+    static PENDING_FOLDER: Mutex<Option<FolderPicked>> = Mutex::new(None);
 
     /// Hands the window's crate a picker that runs on this activity.
     pub fn install(app: &AndroidApp) {
@@ -238,6 +247,59 @@ mod picker {
                 }
             }
         }));
+
+        let app = app.clone();
+        concat::install_folder_picker(Box::new(move |title, start, on_picked| {
+            let previous = PENDING_FOLDER
+                .lock()
+                .map(|mut slot| slot.replace(on_picked))
+                .ok()
+                .flatten();
+            if let Some(previous) = previous {
+                previous(None);
+            }
+            match pick_folder(&app, &title, &start) {
+                Ok(true) => {}
+                Ok(false) => {
+                    if let Some(pending) =
+                        PENDING_FOLDER.lock().ok().and_then(|mut slot| slot.take())
+                    {
+                        pending(None);
+                    }
+                }
+                Err(error) => {
+                    log::error!("could not show the folder picker: {error}");
+                    if let Some(pending) =
+                        PENDING_FOLDER.lock().ok().and_then(|mut slot| slot.take())
+                    {
+                        pending(None);
+                    }
+                }
+            }
+        }));
+    }
+
+    fn pick_folder(app: &AndroidApp, _title: &str, _start: &str) -> jni::errors::Result<bool> {
+        super::java::with_class(app, |env, activity, class| {
+            let has_access = env
+                .call_static_method(
+                    class,
+                    jni_str!("ensureAllFilesAccess"),
+                    jni_sig!("(Landroid/app/Activity;)Z"),
+                    &[activity.into()],
+                )?
+                .z()?;
+            if !has_access {
+                return Ok(false);
+            }
+            env.call_static_method(
+                class,
+                jni_str!("pickFolder"),
+                jni_sig!("(Landroid/app/Activity;)V"),
+                &[activity.into()],
+            )?;
+            Ok(true)
+        })
     }
 
     fn pick(app: &AndroidApp, kinds: &concat::PickKinds) -> jni::errors::Result<()> {
@@ -305,6 +367,34 @@ mod picker {
         };
         if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
             pending(paths);
+        }
+    }
+
+    /// `ConcatFiles.folderPicked`, on the activity thread.
+    pub(super) unsafe extern "system" fn folder_picked(
+        _env: *mut sys::JNIEnv,
+        _class: sys::jclass,
+        path: sys::jstring,
+    ) {
+        let path = JavaVM::singleton().and_then(|vm| {
+            vm.attach_current_thread(|env| {
+                if path.is_null() {
+                    return Ok(None);
+                }
+                // SAFETY: `path` is the argument Java handed this frame.
+                let value = unsafe { JString::from_raw(env, path) };
+                Ok(Some(PathBuf::from(value.mutf8_chars(env)?.to_string())))
+            })
+        });
+        let path = match path {
+            Ok(path) => path,
+            Err(error) => {
+                log::error!("could not read the selected folder: {error}");
+                None
+            }
+        };
+        if let Some(pending) = PENDING_FOLDER.lock().ok().and_then(|mut slot| slot.take()) {
+            pending(path);
         }
     }
 }

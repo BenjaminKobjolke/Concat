@@ -2549,6 +2549,13 @@ impl Studio {
                     true,
                 ),
                 row(
+                    "collect-media",
+                    t("studio.collectMediaIntoProject"),
+                    Glyph::Folder,
+                    "",
+                    self.session.is_some(),
+                ),
+                row(
                     "export",
                     t("studio.export"),
                     Glyph::Export,
