@@ -18,8 +18,6 @@
 
 use std::sync::{Mutex, OnceLock};
 
-const REASON: &str = "Concat is exporting or processing media";
-
 /// What a platform's own crate does to keep the machine awake (`true`) or
 /// let it rest (`false`).
 pub type Hook = Box<dyn Fn(bool) + Send + Sync>;
@@ -94,7 +92,10 @@ mod system {
             if !on {
                 return;
             }
-            let mut reason: Vec<u16> = super::REASON.encode_utf16().chain([0]).collect();
+            let mut reason: Vec<u16> = "Concat is exporting or processing media"
+                .encode_utf16()
+                .chain([0])
+                .collect();
             let context = REASON_CONTEXT {
                 Version: 0,
                 Flags: POWER_REQUEST_CONTEXT_SIMPLE_STRING,
@@ -171,10 +172,8 @@ mod system {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match (on, *assertion) {
             (true, None) => {
-                let name = std::ffi::CString::new(super::REASON)
-                    .expect("the reason contains no NUL bytes");
-                // SAFETY: `name` stays alive through the call; both CFStrings
-                // are released after it.
+                // SAFETY: both strings are NUL-terminated literals; the
+                // CFStrings made from them are released after the call.
                 unsafe {
                     let kind = CFStringCreateWithCString(
                         std::ptr::null(),
@@ -183,7 +182,7 @@ mod system {
                     );
                     let name = CFStringCreateWithCString(
                         std::ptr::null(),
-                        name.as_ptr(),
+                        c"Concat is exporting or processing media".as_ptr(),
                         K_CF_STRING_ENCODING_UTF8,
                     );
                     let mut id: IOPMAssertionID = 0;

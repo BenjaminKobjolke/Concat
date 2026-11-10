@@ -7,7 +7,7 @@ kind = "filter"
 category = "Everyday"
 order = 18
 intensity = "matte"
-description = "Milk's warm twin: the same soft matte with cream in the whites and a little gold in the middle. Interiors and morning light."
+description = "Whitewash's warm twin: the same soft matte with cream in the whites and a little gold in the middle. Interiors and morning light."
 
 [[param]]
 key = "matte"
