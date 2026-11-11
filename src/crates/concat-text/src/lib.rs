@@ -283,6 +283,8 @@ struct Cache {
     /// For each character a title's own faces had no glyph for, the faces
     /// that can draw it, learnt once by reading every face.
     covers: HashMap<char, Covers>,
+    /// Colour faces that shape a regional-indicator pair into one picture.
+    regional_flags: HashMap<[char; 2], Option<fontdb::ID>>,
 }
 
 /// The faces that can draw one character, in the database's order, split
@@ -720,7 +722,9 @@ impl Fonts {
             .map(|text| {
                 let at = text.as_ptr() as usize - style.content.as_ptr() as usize;
                 let looks_here = look_of.get(at..at + text.len()).unwrap_or(&[]);
-                self.assign(text, looks_here, looks, &owns, &own_faces, &cache, &mut ids)
+                self.assign(
+                    text, looks_here, looks, &owns, &own_faces, &mut cache, &mut ids,
+                )
             })
             .collect();
         let mut faces = own_data;
@@ -785,11 +789,12 @@ impl Fonts {
         looks: &[Look],
         owns: &[usize],
         own_faces: &[ttf_parser::Face<'_>],
-        cache: &Cache,
+        cache: &mut Cache,
         ids: &mut Vec<fontdb::ID>,
     ) -> Vec<usize> {
         let mut out = vec![0; text.len()];
         let mut last = 0;
+        let mut regional_run = 0;
         let nexts = text.chars().skip(1).map(Some).chain([None]);
         for ((at, ch), next) in text.char_indices().zip(nexts) {
             let look = look_of.get(at).copied().unwrap_or(0);
@@ -798,8 +803,22 @@ impl Fonts {
                 weight: looks[look].weight.clamp(100.0, 900.0).round() as u16,
                 italic: looks[look].italic,
             };
-            let covers = cache.covers.get(&ch);
             let presentation = Presentation::before(next);
+            let regional = if is_regional_indicator(ch) {
+                let paired = regional_run % 2 == 1;
+                regional_run += 1;
+                if paired {
+                    Some(last)
+                } else if let Some(next) = next.filter(|&next| is_regional_indicator(next)) {
+                    self.regional_flag_index(ch, next, cache, ids)
+                } else {
+                    None
+                }
+            } else {
+                regional_run = 0;
+                None
+            };
+            let covers = cache.covers.get(&ch);
             // The look's own face keeps what it has, unless the words ask
             // for a picture of it and a colour face has one.
             let keeps = own_faces[own].glyph_index(ch).is_some()
@@ -807,7 +826,9 @@ impl Fonts {
             let lends = |ids: &[fontdb::ID], index: usize| {
                 index != own && covers.is_some_and(|covers| covers.lends(ids[index], presentation))
             };
-            let index = if joins(ch) && at > 0 {
+            let index = if let Some(index) = regional {
+                index
+            } else if joins(ch) && at > 0 {
                 // A mark, a joiner, a skin tone: with what it modifies.
                 last
             } else if keeps {
@@ -826,6 +847,60 @@ impl Fonts {
             last = index;
         }
         out
+    }
+
+    /// A regional-indicator pair is one emoji in colour fonts, though
+    /// neither indicator is necessarily a colour glyph by itself. Keep the
+    /// pair together on a face that shapes it to one colour glyph.
+    fn regional_flag_index(
+        &self,
+        first: char,
+        second: char,
+        cache: &mut Cache,
+        ids: &mut Vec<fontdb::ID>,
+    ) -> Option<usize> {
+        let pair = [first, second];
+        let id = (*cache
+            .regional_flags
+            .entry(pair)
+            .or_insert_with(|| self.regional_flag_face(pair)))?;
+        Some(match ids.iter().position(|&held| held == id) {
+            Some(index) => index,
+            None => {
+                ids.push(id);
+                ids.len() - 1
+            }
+        })
+    }
+
+    /// Find a face whose shaping turns the two indicators into a color
+    /// glyph. The database order keeps the machine's emoji face preferred.
+    fn regional_flag_face(&self, pair: [char; 2]) -> Option<fontdb::ID> {
+        let text: String = pair.into_iter().collect();
+        self.db.faces().find_map(|info| {
+            if info
+                .families
+                .iter()
+                .any(|(name, _)| name.contains("LastResort"))
+            {
+                return None;
+            }
+            self.db.with_face_data(info.id, |data, index| {
+                let face = rustybuzz::Face::from_slice(data, index)?;
+                let mut buffer = rustybuzz::UnicodeBuffer::new();
+                buffer.push_str(&text);
+                let shaped = rustybuzz::shape(&face, &[], buffer);
+                let [glyph] = shaped.glyph_infos() else {
+                    return None;
+                };
+                let face = ttf_parser::Face::parse(data, index).ok()?;
+                let is_colour = colour_glyphs::glyph_is_colour(
+                    &face,
+                    ttf_parser::GlyphId(glyph.glyph_id as u16),
+                );
+                is_colour.then_some(info.id)
+            })?
+        })
     }
 
     /// The face to borrow for a character no face in use can lend: among
@@ -965,6 +1040,11 @@ fn joins(ch: char) -> bool {
     ch.script() == Script::Inherited
         || ('\u{1F3FB}'..='\u{1F3FF}').contains(&ch)
         || ('\u{E0020}'..='\u{E007F}').contains(&ch)
+}
+
+/// The Unicode regional-indicator block used for paired flag emoji.
+fn is_regional_indicator(ch: char) -> bool {
+    ('\u{1F1E6}'..='\u{1F1FF}').contains(&ch)
 }
 
 /// One shaped line: its outlines in pixels, pen at the origin, one path

@@ -66,6 +66,11 @@ fn paints_itself(face: &ttf_parser::Face<'_>, glyph: GlyphId) -> bool {
         || (face.is_color_glyph(glyph) && paint_tree::shows_anything(face, glyph))
 }
 
+/// Whether one shaped glyph has colours of its own that can be drawn.
+pub(crate) fn glyph_is_colour(face: &ttf_parser::Face<'_>, glyph: GlyphId) -> bool {
+    paints_itself(face, glyph)
+}
+
 /// A strike picture in colour: PNG, or premultiplied BGRA. Monochrome and
 /// grey strikes are not colour, and their glyph is drawn as its outline.
 fn decodable(image: &RasterGlyphImage<'_>) -> bool {

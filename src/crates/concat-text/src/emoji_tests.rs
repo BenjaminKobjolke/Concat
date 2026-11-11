@@ -16,7 +16,8 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::{
-    Align, BUNDLED_FAMILY, Fonts, NOTO_SANS_THAI, RenderedFrame, TitleRun, TitleStyle, render_frame,
+    Align, BUNDLED_FAMILY, Fonts, NOTO_SANS_THAI, RenderedFrame, TitleRun, TitleStyle,
+    is_regional_indicator, render_frame,
 };
 
 /// The frame every case is painted on.
@@ -869,6 +870,16 @@ fn emoji_sequences_draw_as_one_picture() {
         "\u{1F1EF}\u{1F1F5}",
         "\u{2764}\u{FE0F}",
     ] {
+        let indicators: Vec<char> = sequence.chars().collect();
+        if indicators.len() == 2
+            && indicators.iter().copied().all(is_regional_indicator)
+            && system()
+                .regional_flag_face([indicators[0], indicators[1]])
+                .is_none()
+        {
+            eprintln!("no system colour face draws {sequence} as one picture; skipped");
+            continue;
+        }
         let wide = width(sequence);
         assert!(
             wide > 0.0 && wide <= one * 1.3,
