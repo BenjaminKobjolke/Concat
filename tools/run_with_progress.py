@@ -24,7 +24,7 @@ def main() -> int:
     if args.interval < 1:
         parser.error("--interval must be at least one second")
 
-    print(f"Building {args.label}.", flush=True)
+    print(f"Starting {args.label}.", flush=True)
     process = subprocess.Popen(
         command,
         cwd=Path(__file__).resolve().parents[1] / "src",
@@ -48,7 +48,7 @@ def main() -> int:
     started = time.monotonic()
     next_progress = started + args.interval
     streams_open = 2
-    while streams_open:
+    while process.poll() is None or streams_open:
         wait = max(0.0, next_progress - time.monotonic())
         try:
             stream, line = output.get(timeout=wait)
