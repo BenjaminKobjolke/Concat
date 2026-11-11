@@ -28,20 +28,36 @@ pub fn to_local(root: &Path, document: &mut Value) {
     walk_paths(root, document, |root, path| {
         if is_absolute(path) {
             if Path::new(path).exists() {
-                return path.to_owned();
+                return local_path_string(Path::new(path));
             }
             return fallback_media(root, path)
-                .map(|fallback| fallback.to_string_lossy().into_owned())
+                .map(|fallback| local_path_string(&fallback))
                 .unwrap_or_else(|| path.to_owned());
         }
 
-        let local_path = if std::path::MAIN_SEPARATOR == '\\' {
+        let local_path = if cfg!(windows) || is_windows_path(&root.to_string_lossy()) {
             path.replace('/', "\\")
         } else {
             path.to_owned()
         };
-        root.join(local_path).to_string_lossy().into_owned()
+        local_path_string(&root.join(local_path))
     });
+}
+
+/// Return an ordinary local spelling for paths stored in the project model.
+/// Windows accepts verbatim paths and mixed separators, but they make saved
+/// model values differ from paths produced by imports and edits.
+pub fn local_path_string(path: &Path) -> String {
+    let mut value = path.to_string_lossy().into_owned();
+    if cfg!(windows) || value.starts_with(r"\\?\") || is_windows_path(&value) {
+        value = value.replace('/', "\\");
+    }
+    if let Some(unc) = value.strip_prefix(r"\\?\UNC\") {
+        value = format!(r"\\{unc}");
+    } else if let Some(path) = value.strip_prefix(r"\\?\") {
+        value = path.to_owned();
+    }
+    value
 }
 
 fn walk_paths(root: &Path, document: &mut Value, mut convert: impl FnMut(&Path, &str) -> String) {
@@ -141,7 +157,10 @@ mod tests {
         assert_eq!(path(&document, "media", 0), "media/a.mp4");
 
         to_local(root.path(), &mut document);
-        assert_eq!(PathBuf::from(path(&document, "media", 0)), media);
+        assert_eq!(
+            path(&document, "media", 0),
+            media.to_string_lossy().as_ref()
+        );
     }
 
     #[test]

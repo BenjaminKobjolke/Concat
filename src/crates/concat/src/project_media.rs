@@ -60,7 +60,9 @@ pub(crate) fn copy_into_project_media(source: &Path, project_dir: &Path) -> io::
             let _ = std::fs::remove_file(&destination);
             return Err(error);
         }
-        return Ok(destination);
+        return Ok(PathBuf::from(concat_host::media_paths::local_path_string(
+            &destination,
+        )));
     }
 
     unreachable!("the numbered media name space is larger than the filesystem")
