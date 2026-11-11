@@ -65,6 +65,9 @@ desktop.ini
 # Working files of external tools (tickets watcher, Claude)
 /tickets/
 /tools/tickets-watcher.json
+# Local copies of tools/android_release_example.ini and tools/config_example.bat
+/tools/android_release.ini
+/tools/config.bat
 .claude/
 PLAN.md
 HANDOFF.md
