@@ -228,7 +228,7 @@ mod picker {
 
     /// Hands the window's crate a picker that runs on this activity.
     pub fn install(app: &AndroidApp) {
-        let app = app.clone();
+        let file_app = app.clone();
         concat::install_file_picker(Box::new(move |kinds, on_picked| {
             let previous = PENDING
                 .lock()
@@ -240,7 +240,7 @@ mod picker {
                 // it got nothing rather than left waiting for ever.
                 previous(Vec::new());
             }
-            if let Err(error) = pick(&app, &kinds) {
+            if let Err(error) = pick(&file_app, &kinds) {
                 log::error!(
                     "import: showing the document picker failed: {error}; nothing was picked"
                 );
