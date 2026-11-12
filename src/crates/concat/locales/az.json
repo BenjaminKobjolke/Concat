@@ -1066,5 +1066,9 @@
   "voices.styles": "Üslublar",
   "voices.stylesHint": "Üslub effektləri olan səsdir. Onunla yazmaq üçün birini seçin: effektlər nitq klipinə düşür və orada dəyişə bilərsiniz.",
   "voices.voices": "Səslər",
-  "voices.yours": "Sizin səsləriniz"
+  "voices.yours": "Sizin səsləriniz",
+  "settings.couldNotShareLog": "Could not share the log: {0}",
+  "settings.shareTheLog": "Share the log",
+  "start.lastRunClosed": "Concat closed on its own the last time you used it. Its log says what it was doing: share it with us and we can find out why.",
+  "start.lastRunClosedTitle": "Concat closed last time"
 }

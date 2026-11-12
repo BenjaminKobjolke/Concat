@@ -1066,5 +1066,9 @@
   "voices.styles": "สไตล์",
   "voices.stylesHint": "สไตล์คือเสียงพูดที่ใส่เอฟเฟกต์ เลือกหนึ่งสไตล์เพื่อเขียนด้วยเสียงนั้น เอฟเฟกต์จะอยู่บนคลิปเสียงพูด ซึ่งคุณเปลี่ยนได้",
   "voices.voices": "เสียงพูด",
-  "voices.yours": "เสียงพูดของคุณ"
+  "voices.yours": "เสียงพูดของคุณ",
+  "settings.couldNotShareLog": "Could not share the log: {0}",
+  "settings.shareTheLog": "Share the log",
+  "start.lastRunClosed": "Concat closed on its own the last time you used it. Its log says what it was doing: share it with us and we can find out why.",
+  "start.lastRunClosedTitle": "Concat closed last time"
 }

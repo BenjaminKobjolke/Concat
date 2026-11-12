@@ -1066,5 +1066,9 @@
   "voices.styles": "Estilos",
   "voices.stylesHint": "Un estilo es una voz con efectos. Elige uno para escribir con él: los efectos van al clip de voz, donde puedes cambiarlos.",
   "voices.voices": "Voces",
-  "voices.yours": "Tus voces"
+  "voices.yours": "Tus voces",
+  "settings.couldNotShareLog": "Could not share the log: {0}",
+  "settings.shareTheLog": "Share the log",
+  "start.lastRunClosed": "Concat closed on its own the last time you used it. Its log says what it was doing: share it with us and we can find out why.",
+  "start.lastRunClosedTitle": "Concat closed last time"
 }

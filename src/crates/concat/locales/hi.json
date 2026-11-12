@@ -1066,5 +1066,9 @@
   "voices.styles": "स्टाइल",
   "voices.stylesHint": "स्टाइल यानी इफ़ेक्ट वाली आवाज़। उसमें लिखने के लिए कोई एक चुनें: इफ़ेक्ट स्पीच क्लिप पर लगते हैं, जहाँ आप उन्हें बदल सकते हैं।",
   "voices.voices": "आवाज़ें",
-  "voices.yours": "आपकी आवाज़ें"
+  "voices.yours": "आपकी आवाज़ें",
+  "settings.couldNotShareLog": "Could not share the log: {0}",
+  "settings.shareTheLog": "Share the log",
+  "start.lastRunClosed": "Concat closed on its own the last time you used it. Its log says what it was doing: share it with us and we can find out why.",
+  "start.lastRunClosedTitle": "Concat closed last time"
 }

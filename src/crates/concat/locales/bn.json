@@ -1066,5 +1066,9 @@
   "voices.styles": "স্টাইল",
   "voices.stylesHint": "স্টাইল মানে ইফেক্টসহ একটি কণ্ঠ। কোনোটি দিয়ে লিখতে সেটি বেছে নিন: ইফেক্টগুলো স্পিচ ক্লিপে যায়, সেখানে বদলানো যায়।",
   "voices.voices": "কণ্ঠ",
-  "voices.yours": "আপনার কণ্ঠ"
+  "voices.yours": "আপনার কণ্ঠ",
+  "settings.couldNotShareLog": "Could not share the log: {0}",
+  "settings.shareTheLog": "Share the log",
+  "start.lastRunClosed": "Concat closed on its own the last time you used it. Its log says what it was doing: share it with us and we can find out why.",
+  "start.lastRunClosedTitle": "Concat closed last time"
 }

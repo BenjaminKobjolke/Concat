@@ -1066,5 +1066,9 @@
   "voices.styles": "Stilovi",
   "voices.stylesHint": "Stil je glas s efektima. Odaberite jedan da biste njime pisali: efekti idu na govorni isječak, gdje ih možete mijenjati.",
   "voices.voices": "Glasovi",
-  "voices.yours": "Vaši glasovi"
+  "voices.yours": "Vaši glasovi",
+  "settings.couldNotShareLog": "Could not share the log: {0}",
+  "settings.shareTheLog": "Share the log",
+  "start.lastRunClosed": "Concat closed on its own the last time you used it. Its log says what it was doing: share it with us and we can find out why.",
+  "start.lastRunClosedTitle": "Concat closed last time"
 }

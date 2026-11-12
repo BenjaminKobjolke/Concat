@@ -1066,5 +1066,9 @@
   "voices.styles": "Stiller",
   "voices.stylesHint": "Stil, efekt uygulanmış bir sestir. Onunla yazmak için birini seçin: efektler konuşma klibine eklenir, orada değiştirebilirsiniz.",
   "voices.voices": "Ses tonları",
-  "voices.yours": "Sizin sesleriniz"
+  "voices.yours": "Sizin sesleriniz",
+  "settings.couldNotShareLog": "Could not share the log: {0}",
+  "settings.shareTheLog": "Share the log",
+  "start.lastRunClosed": "Concat closed on its own the last time you used it. Its log says what it was doing: share it with us and we can find out why.",
+  "start.lastRunClosedTitle": "Concat closed last time"
 }

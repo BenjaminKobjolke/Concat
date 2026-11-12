@@ -1066,5 +1066,9 @@
   "voices.styles": "Phong cách",
   "voices.stylesHint": "Phong cách là một giọng có hiệu ứng. Chọn một phong cách để viết bằng nó: hiệu ứng được đặt lên clip giọng nói, nơi bạn có thể thay đổi.",
   "voices.voices": "Giọng nói",
-  "voices.yours": "Giọng của bạn"
+  "voices.yours": "Giọng của bạn",
+  "settings.couldNotShareLog": "Could not share the log: {0}",
+  "settings.shareTheLog": "Share the log",
+  "start.lastRunClosed": "Concat closed on its own the last time you used it. Its log says what it was doing: share it with us and we can find out why.",
+  "start.lastRunClosedTitle": "Concat closed last time"
 }

@@ -1066,5 +1066,9 @@
   "voices.styles": "Stijlen",
   "voices.stylesHint": "Een stijl is een stem met effecten. Kies er een om erin te schrijven: de effecten komen op de spraakclip, waar je ze kunt aanpassen.",
   "voices.voices": "Stemmen",
-  "voices.yours": "Jouw stemmen"
+  "voices.yours": "Jouw stemmen",
+  "settings.couldNotShareLog": "Could not share the log: {0}",
+  "settings.shareTheLog": "Share the log",
+  "start.lastRunClosed": "Concat closed on its own the last time you used it. Its log says what it was doing: share it with us and we can find out why.",
+  "start.lastRunClosedTitle": "Concat closed last time"
 }

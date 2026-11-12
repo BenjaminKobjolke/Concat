@@ -1066,5 +1066,9 @@
   "voices.styles": "Style",
   "voices.stylesHint": "Styl to głos z efektami. Wybierz jeden, aby nim pisać: efekty trafią na klip mowy, gdzie możesz je zmienić.",
   "voices.voices": "Głosy",
-  "voices.yours": "Twoje głosy"
+  "voices.yours": "Twoje głosy",
+  "settings.couldNotShareLog": "Could not share the log: {0}",
+  "settings.shareTheLog": "Share the log",
+  "start.lastRunClosed": "Concat closed on its own the last time you used it. Its log says what it was doing: share it with us and we can find out why.",
+  "start.lastRunClosedTitle": "Concat closed last time"
 }
