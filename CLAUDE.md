@@ -34,6 +34,7 @@ they are intentionally referenced, not imported.
 
 - This is a fork of jub0t/Concat that merges from upstream. Apply `CODING_RULES.md` to new and changed code only. Do not refactor, reformat, move or rename upstream code a task does not need. Prefer new files for features.
 - The Cargo workspace root is `src/`. Run `cargo` commands from `src/`, not the repo root.
+- After an upstream merge, run `git diff ORIG_HEAD HEAD -- .github/workflows/mobile.yml src/scripts/`. When it shows changes, compare the Android job in `.github/workflows/mobile.yml` with `scripts/android-wsl/setup.sh` and `scripts/android-wsl/build-apk.sh` and bring the two scripts in line: they re-state upstream's vendor steps and upstream CI does not run them.
 - graphify: this project's code directory is `.`. The scan scope is set by the root `.graphifyignore` (todo #14335). Never build the graph from a different root.
 - No Rust rule set ships yet (requested in Coding Rules draft #14342). Re-run `/coding-rules:apply` once it ships.
 
