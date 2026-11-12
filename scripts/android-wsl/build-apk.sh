@@ -18,7 +18,9 @@ git pull --ff-only
 cd src
 # A copy out of the NDK, so it runs every build rather than once in setup.sh.
 scripts/android-libs.sh aarch64-linux-android
-eval "$(scripts/mobile-env.sh aarch64-linux-android)"
+# Two lines: a failing command substitution inside eval's argument does not trip set -e.
+env=$(scripts/mobile-env.sh aarch64-linux-android)
+eval "$env"
 # shortcut: rustc 1.93.1 ICEs rendering a missing_docs warning in concat's `platform` module; silence it. Drop after a toolchain bump.
 export RUSTFLAGS="$RUSTFLAGS -A missing_docs"
 cargo apk build --release -p concat-android --target aarch64-linux-android
