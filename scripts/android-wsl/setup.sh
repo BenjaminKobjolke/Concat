@@ -10,8 +10,8 @@
 #
 # Installs, all under $HOME: Rust (pinned toolchain) + cargo-apk, the Android
 # SDK/NDK, an LF clone of this checkout at ~/Concat (scripts in the Windows
-# checkout have CRLF endings), a local signing key, and the vendored FFmpeg
-# and sherpa-onnx. Safe to re-run: finished steps are skipped.
+# checkout have CRLF endings), a local signing key, and the vendored FFmpeg.
+# Safe to re-run: finished steps are skipped.
 set -euo pipefail
 
 win_repo=$(cd "$(dirname "$0")/../.." && pwd)
@@ -75,5 +75,4 @@ if [ ! -f "$ffsrc/ffmpeg-$ffmpeg_version/configure" ]; then
 fi
 # FFmpeg builds from source: slow, once.
 [ -d vendor/ffmpeg/aarch64-linux-android/lib ] || scripts/ffmpeg-mobile.sh aarch64-linux-android
-[ -d vendor/sherpa-onnx/jniLibs/arm64-v8a ] || scripts/sherpa-mobile.sh aarch64-linux-android
 echo "Setup done. Build with: bash $win_repo/scripts/android-wsl/build-apk.sh"

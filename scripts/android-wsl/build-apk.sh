@@ -16,6 +16,8 @@ export CARGO_APK_RELEASE_KEYSTORE=~/concat-local.keystore CARGO_APK_RELEASE_KEYS
 cd ~/Concat
 git pull --ff-only
 cd src
+# A copy out of the NDK, so it runs every build rather than once in setup.sh.
+scripts/android-libs.sh aarch64-linux-android
 eval "$(scripts/mobile-env.sh aarch64-linux-android)"
 # shortcut: rustc 1.93.1 ICEs rendering a missing_docs warning in concat's `platform` module; silence it. Drop after a toolchain bump.
 export RUSTFLAGS="$RUSTFLAGS -A missing_docs"
