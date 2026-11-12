@@ -6,7 +6,7 @@
 #   sudo apt-get update && sudo apt-get install -y build-essential cmake clang libclang-dev openjdk-17-jdk-headless
 # Then, from the Windows checkout:
 #   wsl -d Ubuntu -- bash /mnt/d/<path>/Concat/scripts/android-wsl/setup.sh
-# Then build with build-apk.sh (or build-apk.bat).
+# Then build with build-apk.bat.
 #
 # Installs, all under $HOME: Rust (pinned toolchain) + cargo-apk, the Android
 # SDK/NDK, an LF clone of this checkout at ~/Concat (scripts in the Windows
@@ -42,7 +42,7 @@ yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true  
 # Ubuntu 20.04's cmake 3.16 is too old for NDK 28 (whisper.cpp); build-apk.sh puts ~/.local/bin first.
 python3 -m pip install --user -q "cmake<4"
 
-# LF clone on the Linux filesystem; build-apk.sh pulls the Windows checkout into it.
+# LF clone on the Linux filesystem; build-apk.sh checks out the Windows checkout's snapshot in it.
 [ -d ~/Concat ] || git clone "$win_repo" ~/Concat
 
 # Signing key for release builds (local only, like CI's per-run key).
@@ -75,4 +75,4 @@ if [ ! -f "$ffsrc/ffmpeg-$ffmpeg_version/configure" ]; then
 fi
 # FFmpeg builds from source: slow, once.
 [ -d vendor/ffmpeg/aarch64-linux-android/lib ] || scripts/ffmpeg-mobile.sh aarch64-linux-android
-echo "Setup done. Build with: bash $win_repo/scripts/android-wsl/build-apk.sh"
+echo "Setup done. Build with scripts/android-wsl/build-apk.bat from Windows."

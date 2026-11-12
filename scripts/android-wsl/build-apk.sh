@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Builds the release APK in WSL (after setup.sh): pulls the Windows checkout's
-# committed state into ~/Concat, builds, and copies the APK into the Windows
-# checkout as build/Concat.apk (git-ignored). Uncommitted changes are not built.
+# Builds the release APK in WSL (after setup.sh): checks out in ~/Concat the
+# working-tree snapshot build-apk.bat stored as refs/wsl-build, builds, and copies
+# the APK into the Windows checkout as build/Concat.apk (git-ignored). Start it
+# through build-apk.bat: run alone it builds the last snapshot. Files not yet
+# `git add`ed are not in the snapshot.
 set -euo pipefail
 
 win_repo=$(cd "$(dirname "$0")/../.." && pwd)
@@ -14,7 +16,8 @@ export PATH=~/.local/bin:$PATH LIBCLANG_PATH=$ANDROID_HOME/ndk/$ndk_version/tool
 export CARGO_APK_RELEASE_KEYSTORE=~/concat-local.keystore CARGO_APK_RELEASE_KEYSTORE_PASSWORD=concat
 
 cd ~/Concat
-git pull --ff-only
+git fetch origin refs/wsl-build
+git checkout --detach FETCH_HEAD
 cd src
 # A copy out of the NDK, so it runs every build rather than once in setup.sh.
 scripts/android-libs.sh aarch64-linux-android
