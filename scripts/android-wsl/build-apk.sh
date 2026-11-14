@@ -24,8 +24,8 @@ scripts/android-libs.sh aarch64-linux-android
 # Two lines: a failing command substitution inside eval's argument does not trip set -e.
 env=$(scripts/mobile-env.sh aarch64-linux-android)
 eval "$env"
-# shortcut: rustc 1.93.1 ICEs rendering a missing_docs warning in concat's `platform` module; silence it. Drop after a toolchain bump.
-export RUSTFLAGS="$RUSTFLAGS -A missing_docs"
+# shortcut: rustc 1.93.1 ICEs rendering missing_docs and dead_code warnings; silence them. Drop after upgrading to a compiler without the ICE.
+export RUSTFLAGS="$RUSTFLAGS -A missing_docs -A dead_code"
 cargo apk build --release -p concat-android --target aarch64-linux-android
 
 out=$win_repo/build
