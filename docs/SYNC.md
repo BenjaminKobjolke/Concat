@@ -26,6 +26,7 @@ In Syncthing, add these ignore patterns to the shared folder's `.stignore` file 
 ```text
 **/concat.lock
 **/concat.json.saving.*
+**/concat.opened.json
 **/cache/art
 **/cache/audio
 **/cache/proxy
@@ -36,6 +37,8 @@ In Syncthing, add these ignore patterns to the shared folder's `.stignore` file 
 **/cache/poster.jpg
 **/cache/missing_media.log
 ```
+
+Concat writes `concat.opened.json` on each device when a project opens, as that device's copy of the project before the session's first save, so it is not synced.
 
 Do not ignore `cache/reverse-*` or `cache/enhance-*`. Those files are media used by the project,
 not disposable cache.

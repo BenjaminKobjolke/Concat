@@ -218,4 +218,37 @@ mod tests {
         assert_eq!(path(&document, "media", 0), "media/a.mp4");
         assert_eq!(path(&document, "fonts", 0), "media/a.ttf");
     }
+
+    #[test]
+    fn opening_keeps_local_paths_and_raw_opened_copy() {
+        let root = tempfile::tempdir().expect("project folder");
+        let media = root.path().join("media").join("clip.mp4");
+        std::fs::create_dir_all(media.parent().expect("media folder")).expect("creates media");
+        std::fs::write(&media, b"video").expect("writes media");
+
+        let bytes = serde_json::to_vec(&json!({
+            "media": [{"path": "media/clip.mp4"}],
+            "fonts": []
+        }))
+        .expect("serializes project");
+        std::fs::write(root.path().join("concat.json"), &bytes).expect("writes project");
+
+        let (document, stored_bytes) = crate::projects::read_document_as_stored(
+            root.path().to_str().expect("project path"),
+        )
+        .expect("reads project")
+        .expect("project exists");
+        assert_eq!(Path::new(path(&document, "media", 0)), media);
+        assert_eq!(stored_bytes, bytes);
+
+        crate::projects::keep_opened_copy(
+            root.path().to_str().expect("project path"),
+            &stored_bytes,
+        )
+        .expect("keeps opened copy");
+        assert_eq!(
+            std::fs::read(crate::projects::opened_copy_path(root.path())).expect("reads copy"),
+            bytes
+        );
+    }
 }

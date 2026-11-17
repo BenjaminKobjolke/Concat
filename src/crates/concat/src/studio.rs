@@ -468,7 +468,10 @@ pub enum Edge {
 /// Where one clip sat when a gesture began, so the whole set moves rigidly.
 pub struct MoveOrigin {
     pub clip: String,
-    pub start: f32,
+    /// Where the clip began when the press landed, exact: the drag adds its
+    /// shift to this, not to the echo's start, which already holds the last
+    /// shift.
+    pub start: f64,
     pub row: i32,
 }
 
@@ -1078,6 +1081,9 @@ pub struct Studio {
     pub export: crate::panes::export::ExportPane,
     pub settings: crate::panes::settings::SettingsPane,
     pub relink: crate::panes::relink::RelinkPane,
+    /// The notice that part of the project cannot be shown, held back while
+    /// the relink dialog the same open raised is up; raised when it closes.
+    pub unread_pending: Option<String>,
     /// What the confirmation sheet is asking about, while it is up.
     pub confirm: Option<Confirm>,
     /// The clip whose incoming transition is selected, while no clip is:
@@ -3108,6 +3114,7 @@ impl Studio {
             export: Default::default(),
             settings: crate::panes::settings::SettingsPane::default(),
             relink: crate::panes::relink::RelinkPane::default(),
+            unread_pending: None,
             confirm: None,
             transition_selected: None,
             open_menu: -1,

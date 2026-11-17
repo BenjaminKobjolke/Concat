@@ -675,7 +675,7 @@ mod log_file {
             super::publisher::strings(env, answer).map(Some)
         });
         match answer.as_ref().map(|answer| answer.as_deref()) {
-            Ok(Some([Some(log), Some(verdict), Some(detail)])) => {
+            Ok(Some([Some(log), Some(verdict), Some(detail), threads])) => {
                 let died = verdict == "died";
                 let run = if log.is_empty() {
                     "unmarked"
@@ -686,6 +686,15 @@ mod log_file {
                     log::warn!("last run: {run} died · the system says: {detail}");
                 } else {
                     log::info!("last run: {run} ended · the system says: {detail}");
+                }
+                // A hang's threads as the system found them, one entry
+                // under the line above: what the window was doing instead
+                // of answering, frames in Concat's library as offsets in
+                // it (docs/LOGGING.md, "Reading a phone's hang").
+                if let Some(threads) = threads.as_deref().filter(|text| !text.trim().is_empty()) {
+                    log::warn!(
+                        "last run: the threads of {run} when the system gave up on it\n{threads}"
+                    );
                 }
                 concat::note_last_exit(log.clone(), died);
             }
@@ -700,24 +709,37 @@ mod log_file {
 /// download - so a phone left on the table does not time out half a
 /// minute in and stop the export with it (#695). The window's flag, which
 /// the activity applies on its own thread.
+///
+/// Through the activity's Java, never `AndroidApp::set_window_flags`: that
+/// takes the app's lock for writing, and the window's thread is inside
+/// `poll_events`, which holds the same lock for reading for as long as an
+/// event is handled - and an event is where a job starts. Called from
+/// Export, the window's thread waited on itself for good, and Android
+/// closed Concat as not responding (#747, #786, #760, #744; 0.2.10 and
+/// 0.2.11, since #695). Off that thread it is no better: a writer waiting
+/// there blocks the next read the window's thread takes inside its event.
+/// The Java posts to the activity's thread and returns.
 #[cfg(target_os = "android")]
 mod awake {
+    use jni::{jni_sig, jni_str};
     use slint::android::AndroidApp;
-    use slint::android::android_activity::WindowManagerFlags;
 
     pub fn install(app: &AndroidApp) {
         let app = app.clone();
         concat::install_awake(Box::new(move |on| {
             log::debug!("display: the screen kept on while a job runs: {on}");
-            if on {
-                app.set_window_flags(
-                    WindowManagerFlags::KEEP_SCREEN_ON,
-                    WindowManagerFlags::empty(),
-                );
-            } else {
-                app.set_window_flags(
-                    WindowManagerFlags::empty(),
-                    WindowManagerFlags::KEEP_SCREEN_ON,
+            let asked = super::java::with_class(&app, |env, activity, class| {
+                env.call_static_method(
+                    class,
+                    jni_str!("keepScreenOn"),
+                    jni_sig!("(Landroid/app/Activity;Z)V"),
+                    &[activity.into(), on.into()],
+                )?;
+                Ok(())
+            });
+            if let Err(error) = asked {
+                log::warn!(
+                    "display: could not keep the screen on while a job runs: {error}; it may go dark part way"
                 );
             }
         }));
@@ -744,7 +766,48 @@ fn android_main(app: slint::android::AndroidApp) {
     links::install(&app);
     awake::install(&app);
     log_file::install(&app);
+    #[cfg(feature = "smoke")]
+    if let Some(clip) = smoke_clip() {
+        if let Err(error) = concat::smoke_export(clip) {
+            log::error!("smoke: could not start: {error}");
+        }
+        return;
+    }
     if let Err(error) = concat::run() {
         log::error!("close: the window ended in an error: {error}; the app closes");
     }
+}
+
+/// The clip CI's export run pushed: `smoke-export.<extension>` in the
+/// app's files folder, which [`activity::name_directories`] made `HOME`.
+/// There and not in a folder of its own: adb's shell may write into the
+/// app's folder, and a folder the shell made is one the app may not list.
+/// None, and the launch is an ordinary one, when there is none.
+#[cfg(all(target_os = "android", feature = "smoke"))]
+fn smoke_clip() -> Option<std::path::PathBuf> {
+    let Some(home) = std::env::var_os("HOME") else {
+        log::warn!("smoke: no files folder to look for a clip in");
+        return None;
+    };
+    let folder = std::path::PathBuf::from(home);
+    let entries = match std::fs::read_dir(&folder) {
+        Ok(entries) => entries,
+        Err(error) => {
+            log::warn!(
+                "smoke: could not look for a clip in {}: {error}",
+                folder.display()
+            );
+            return None;
+        }
+    };
+    let clip = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .find(|path| path.is_file() && path.file_stem().is_some_and(|stem| stem == "smoke-export"));
+    if clip.is_none() {
+        log::info!(
+            "smoke: no smoke-export clip in {}; an ordinary launch",
+            folder.display()
+        );
+    }
+    clip
 }
