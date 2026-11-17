@@ -233,11 +233,10 @@ mod tests {
         .expect("serializes project");
         std::fs::write(root.path().join("concat.json"), &bytes).expect("writes project");
 
-        let (document, stored_bytes) = crate::projects::read_document_as_stored(
-            root.path().to_str().expect("project path"),
-        )
-        .expect("reads project")
-        .expect("project exists");
+        let (document, stored_bytes) =
+            crate::projects::read_document_as_stored(root.path().to_str().expect("project path"))
+                .expect("reads project")
+                .expect("project exists");
         assert_eq!(Path::new(path(&document, "media", 0)), media);
         assert_eq!(stored_bytes, bytes);
 
