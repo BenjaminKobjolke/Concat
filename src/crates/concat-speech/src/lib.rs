@@ -30,6 +30,7 @@ pub use transcribe::Transcriber;
 pub use tts::Speech;
 
 /// Pick a worker count from the machine's cores, memory and platform limits.
+#[cfg(feature = "isolate")]
 pub(crate) fn workers_for(memory: Option<u64>, worker_bytes: u64) -> usize {
     if let Some(asked) = std::env::var("CONCAT_ISOLATE_WORKERS")
         .ok()
@@ -48,6 +49,7 @@ pub(crate) fn workers_for(memory: Option<u64>, worker_bytes: u64) -> usize {
 }
 
 /// Open a speech pipeline's audio stream with the shared decode settings.
+#[cfg(feature = "isolate")]
 pub(crate) fn open_decoder(
     source: &std::path::Path,
     stream: Option<usize>,
