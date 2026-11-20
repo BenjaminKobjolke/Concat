@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.delay
 import uniffi.concat_mobile.Engine
 import uniffi.concat_mobile.Stats
@@ -68,8 +69,10 @@ class MainActivity : ComponentActivity() {
         }
         val media = File(filesDir, "media").apply { mkdirs() }
         val target = File(media, name)
-        contentResolver.openInputStream(uri)!!.use { input ->
-            target.outputStream().use { input.copyTo(it, 1 shl 20) }
+        val input = contentResolver.openInputStream(uri)
+            ?: throw IOException("the provider would not open $uri")
+        input.use { stream ->
+            target.outputStream().use { stream.copyTo(it, 1 shl 20) }
         }
         return target
     }

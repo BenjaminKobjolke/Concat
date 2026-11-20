@@ -20,6 +20,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use concat_core::Halt;
 use concat_host::media::{self, MediaSummary};
 use concat_host::voices::{self, Heard, SavedVoice};
 use concat_project::Command;
@@ -31,8 +32,8 @@ use concat_speech::tts::{
 };
 use slint::SharedString;
 
-use crate::format::wave_path;
-use crate::host::{on_ui_in_project, spawn_in_project};
+use crate::format::{WAVE_FLOOR, wave_path};
+use crate::host::{on_ui_in_project, spawn_long_in_project};
 use crate::i18n::{t, tf};
 use crate::panes::Msg;
 use crate::panes::captions::CHARS_PER_SECOND;
@@ -165,7 +166,7 @@ pub enum SpeechMsg {
     Progress(JobStage),
     /// The synthesiser's worker is done: the file it wrote, probed, or
     /// why not.
-    Finished(Box<Result<MediaSummary, String>>),
+    Finished(Box<Result<MediaSummary, Halt>>),
 }
 
 /// The Voices shelf's New voice sheet: a recording from the system's
@@ -512,10 +513,10 @@ impl SpeechPane {
                         }
                     }
                     // Asked for: the sheet is already on its way down.
-                    Err(error) if error.contains("cancel") => self.open = false,
+                    Err(Halt::Cancelled) => self.open = false,
                     // Closed while it ran: the panel is not there to say
                     // it, so the notice does, and the panel too next time.
-                    Err(error) => {
+                    Err(Halt::Failed(error)) => {
                         if !self.open {
                             studio.notify(&error, true);
                         }
@@ -638,7 +639,7 @@ impl SpeechPane {
         self.running = true;
         self.message.clear();
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let spoken = speech.speak(&dirs, &request, move |stage| {
                     on_ui_in_project(epoch, move |studio, _, _| {
@@ -646,7 +647,7 @@ impl SpeechPane {
                     });
                 })?;
                 let summary = media::probe(&spoken.path)?;
-                Ok::<_, String>(summary)
+                Ok::<_, Halt>(summary)
             },
             |studio, _, _, result| {
                 studio.handle(Msg::Speech(SpeechMsg::Finished(Box::new(result))))
@@ -884,9 +885,15 @@ impl SpeechPane {
         self.samples(studio)
             .iter()
             .map(|item| match studio.peaks.get(&item.id) {
-                Some(peaks) => {
-                    wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 64, 0.75).into()
-                }
+                Some(peaks) => wave_path(
+                    peaks,
+                    0.0,
+                    item.duration.unwrap_or(0.0) as f32,
+                    64,
+                    0.75,
+                    WAVE_FLOOR,
+                )
+                .into(),
                 None => SharedString::new(),
             })
             .collect()
@@ -1072,7 +1079,7 @@ impl SpeechPane {
         let dir = voices::dir_in(&studio.host.dirs);
         self.saving = true;
         self.message.clear();
-        crate::host::spawn(
+        crate::host::spawn_long(
             move || {
                 voices::save(
                     &dir,
@@ -1107,7 +1114,7 @@ impl SpeechPane {
             listening: true,
             ..NewVoice::default()
         };
-        crate::host::spawn(
+        crate::host::spawn_long(
             move || {
                 let heard = voices::listen(&source);
                 (source, heard)
@@ -1133,7 +1140,7 @@ impl SpeechPane {
         let picture = sheet.picture.clone();
         let description = sheet.description.clone();
         sheet.saving = true;
-        crate::host::spawn(
+        crate::host::spawn_long(
             move || {
                 voices::save(
                     &dir,

@@ -66,6 +66,10 @@ pub use platform::{FolderPicker, LinkOpener, install_folder_picker, install_link
 pub use platform::{LogSharer, install_log_sharer, log_file_name, note_last_exit};
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{MicrophoneAccess, install_microphone_access};
+/// What a backend's hooks say of the window, for safe start: it drew a
+/// frame, or the person used it. On a desktop `DropHandler` says it; on
+/// Android, the activity's event listener. See `start_watch`.
+pub use start_watch::{window_drew, window_touched};
 #[cfg(test)]
 mod close_gate_tests;
 mod panes;
@@ -74,6 +78,7 @@ mod presets;
 mod smoke_export;
 mod source;
 mod speed_ramp;
+mod start_watch;
 mod studio;
 mod sysinfo;
 /// Native Wayland file drops, which winit does not report; see the module.
@@ -427,6 +432,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             i18n::t("start.safeMode")
         };
         studio.notify(&notice, false);
+    } else if platform::no_graphics_driver() {
+        // The machine's own state, not a choice: what makes Concat slow
+        // here, and what fixes it, said once.
+        studio.notify(&i18n::t("start.noGraphicsDriver"), false);
     }
     studio.reload_packages(false);
     studio.watch_packages();
@@ -535,7 +544,25 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // the window answered a touch. Asked on a worker; the sheet offers
     // what needs no asking meanwhile (H.264, and a desktop's software
     // encoders), and the publish after this lands brings the rest.
-    host::spawn(concat_media::encode::probe_encoders, |_, _, _, ()| {});
+    // And asked by a helper, this program started again, where the machine
+    // can start one: opening a chip's encoder runs its driver, and a
+    // driver that crashes there used to close the editor at launch. What
+    // the helper found is remembered here, and the asking after it opens
+    // nothing. Where no helper starts or speaks - a phone, a sandbox that
+    // forbids it - the encoders are asked here, as they were.
+    host::spawn_long(
+        || {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if let Ok(program) = std::env::current_exe()
+                && let Err(why) =
+                    concat_media::encode::apart::ask(&program, &[concat_media::encode::apart::FLAG])
+            {
+                log::warn!("export: the encoder helper was no use ({why}); asking here");
+            }
+            concat_media::encode::probe_encoders();
+        },
+        |_, _, _, ()| {},
+    );
 
     // Handed over once, here, and never replaced: a fresh model is a reset,
     // and a reset rebuilds every row that hangs off it.
@@ -554,6 +581,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         editor.set_catalogue_filters(ModelRc::from(models.catalogue_filters.clone()));
         editor.set_catalogue_luts(ModelRc::from(models.catalogue_luts.clone()));
         editor.set_catalogue_audio(ModelRc::from(models.catalogue_audio.clone()));
+        editor.set_catalogue_audio_library(ModelRc::from(models.catalogue_audio_library.clone()));
         editor.set_catalogue_transitions(ModelRc::from(models.catalogue_transitions.clone()));
         editor.set_effect_groups(ModelRc::from(models.effect_groups.clone()));
         editor.set_filter_groups(ModelRc::from(models.filter_groups.clone()));
@@ -1558,6 +1586,18 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // ── the chains ──
     editor.on_chain_add(on_window!(|state, audio: bool, id: SharedString| {
         state.chain_add(audio, id.as_str());
+    }));
+    // ── Audio › Beats ──
+    // The selected clip's file's own: on, that file is listened to (and
+    // kept, so the next time is instant); every other file is left alone.
+    editor.on_beats_on_changed(on_window!(|state, on: bool| {
+        state.set_beats_on(on);
+    }));
+    editor.on_beats_marks_changed(on_window!(|state, index: i32| {
+        state.set_beat_marks(index);
+    }));
+    editor.on_beats_cut(on_window!(|state| {
+        state.cut_on_beats();
     }));
     editor.on_chain_toggle(on_window!(|state, audio: bool, index: i32| {
         state.chain_toggle(audio, index);
@@ -2796,7 +2836,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
                     .peaks
                     .get(&plan.media)
                     .filter(|_| plan.kind == ClipKind::Audio)
-                    .map(|peaks| format::wave_path(peaks, 0.0, plan.duration, 32, 0.75))
+                    .map(|peaks| {
+                        format::wave_path(peaks, 0.0, plan.duration, 32, 0.75, format::WAVE_FLOOR)
+                    })
                     .unwrap_or_default();
                 let document = chips::drag_chip_svg(
                     chips::chip_glyph(plan.kind),
@@ -2928,14 +2970,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         },
     );
 
-    // A launch that has run this long was not killed by its start; the
-    // mark goes, so the next one is not started safe for nothing.
-    let started = startup_mark.as_ref().map(|mark| mark.path().to_owned());
-    slint::Timer::single_shot(SAFE_AFTER, move || {
-        if let Some(path) = started {
-            let _ = std::fs::remove_file(path);
-        }
-    });
+    // A launch whose window drew, or was used, was not killed by its
+    // start: the mark goes then, so the next one is not started safe for
+    // nothing. See `start_watch`.
+    let startup_mark = startup_mark.map(|mark| Rc::new(start_watch::StartWatch::new(mark)));
+    if let Some(watch) = &startup_mark {
+        start_watch::install(watch);
+    }
 
     // The chosen interface scale, as soon as the window is up.
     slint::Timer::single_shot(std::time::Duration::ZERO, || {
@@ -2958,7 +2999,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             "close: the window could not run: {error}; Concat quits, and the next launch starts safe"
         );
         // The mark stays: the next launch starts safe.
-        std::mem::forget(startup_mark);
+        if let Some(watch) = &startup_mark {
+            watch.keep();
+        }
         leave(1);
     }
     // Android ends the loop when it destroys the activity - Back on the
@@ -3068,9 +3111,6 @@ fn stop_exports() {
     }
 }
 
-/// How long a launch runs before it counts as having started.
-const SAFE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
-
 /// Safe start: whether this launch draws on the software rasteriser
 /// because the last one died while starting, and the mark that says this
 /// one is starting.
@@ -3078,8 +3118,9 @@ const SAFE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
 /// Every recent release met a Windows driver that closed the app in its
 /// first seconds - a new one each time (#339, #378, #389, #242) - and a
 /// launch check on a CI machine meets none of them. A launch that dies
-/// before [`SAFE_AFTER`] leaves its mark; the next one finds it, draws on
-/// WARP or lavapipe instead of the GPU, and keeps doing so for that build -
+/// before it counts as started - its window drawing for a few seconds, or
+/// used; see `start_watch` - leaves its mark; the next one finds it, draws
+/// on WARP or lavapipe instead of the GPU, and keeps doing so for that build -
 /// a driver that killed one launch kills the next, and starting on the GPU
 /// every other time would crash every other time. Slower, and it opens.
 /// The next build tries the GPU again: 0.2.8 kept the CPU for good, and a
@@ -3206,11 +3247,21 @@ pub fn draw_in_software() {
 /// rest of the run - so a quit after any transcription died of SIGABRT in
 /// `exit`, and macOS said Concat had quit unexpectedly. macOS ends an app
 /// that way itself when it opts into sudden termination.
+///
+/// And on Android, which Rust does not count as Linux. There `exit`
+/// destroys the system libraries' static mutexes while the runtime's own
+/// threads - binder's, and any thread in Java's file I/O - still take
+/// them: the mutex of libandroidio's AsynchronousCloseMonitor, which every
+/// blocking Java read and write locks, and one of libgui's. The thread
+/// that took one next aborted ("FORTIFY: pthread_mutex_lock called on a
+/// destroyed mutex"), after the export had finished. Those threads are the
+/// system's, not ours to stop first, and Android ends an app's process
+/// with a kill, never an `exit`, so nothing on a phone needs the handlers.
 fn leave(code: i32) -> ! {
     // The log's last line: a run that got here ended in order, whatever
     // its code, and the next run reads the lack of this line as a crash.
     concat_host::logs::end();
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "android"))]
     {
         use std::io::Write;
         let _ = std::io::stdout().flush();
@@ -3219,7 +3270,7 @@ fn leave(code: i32) -> ! {
         // this one's is touched after it.
         unsafe { libc::_exit(code) }
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "android")))]
     std::process::exit(code);
 }
 

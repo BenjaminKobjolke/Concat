@@ -1,0 +1,45 @@
+[package]
+name = "concat-corpus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The corpus: small projects built through the API, exported the way the window exports them, and checked frame by frame against what their own media says it is."
+
+[dependencies]
+# Every case is driven through the API, as an agent or the command line
+# drives the editor, so what is checked is what a caller gets.
+concat-api.workspace = true
+# The window's own feature set: the export draws on the GPU compositor,
+# as the shipping app's does. Named here so that `-p concat-corpus`
+# builds what the workspace build does.
+concat-host = { workspace = true, features = ["gpu"] }
+concat-core.workspace = true
+# The media is made with the engine's encoder, in ProRes 4444, which is
+# FFmpeg's own encoder on every OS, and the export is read back with its
+# decoder.
+concat-media.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+# Stills in and failed frames out, lossless. Already in the tree for the
+# API's own frames.
+png = "0.17"
+# A preview frame comes back from the API as base64, and the page of
+# failed goldens carries its pictures the same way, so it is one file.
+base64 = "0.22"
+# How far a picture is from its golden as a person would see it: NVIDIA's
+# FLIP, the measure wgpu's own tests judge their pictures by. Its C++ is
+# in the crate and built by `cc`, with nothing asked of the system.
+nv-flip = "0.1.2"
+
+[dev-dependencies]
+# What the engine warns of while a case runs, said in the test's output:
+# a lost graphics device explains a failed case that nothing else does.
+log = "0.4"
+# A case's folder and an artefacts folder for each golden test, gone when
+# the test is.
+tempfile = "3"
+
+[lints]
+workspace = true

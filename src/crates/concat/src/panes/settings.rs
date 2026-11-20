@@ -17,12 +17,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use concat_core::Halt;
 use concat_host::models::SourcePreference;
 use concat_host::updates::{self, Fixed, Installed, Release, Standing, Version};
 use slint::{ModelRc, SharedString, VecModel};
 
 use crate::close_window;
-use crate::host::{on_ui, spawn};
+use crate::host::{on_ui, spawn_long};
 use crate::i18n::{self, t, tf};
 use crate::keymap;
 use crate::panes::Msg;
@@ -101,7 +102,7 @@ pub enum SettingsMsg {
     /// A download's worker is done: the model on disk, or why not.
     ModelFinished {
         id: String,
-        result: Result<(), String>,
+        result: Result<(), Halt>,
     },
     /// The Version page asks GitHub for the releases.
     CheckUpdates,
@@ -120,7 +121,7 @@ pub enum SettingsMsg {
     /// The switch's worker is done: what it did, or why not.
     InstallFinished {
         version: Version,
-        result: Result<Installed, String>,
+        result: Result<Installed, Halt>,
     },
 }
 
@@ -576,7 +577,13 @@ impl SettingsPane {
                         }
                         studio.prefs.save(&studio.host.dirs);
                     }
-                    Err(error) => match &failure {
+                    // The person stopped it, and knows: nothing is said.
+                    // It used to put up the downloader's own words,
+                    // "download cancelled", as an error and in English
+                    // whatever the language, because a cancel was an
+                    // error like any other.
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => match &failure {
                         Some(failure) => studio.notify(&failure_line(failure), true),
                         None => studio.notify(&error, true),
                     },
@@ -645,10 +652,10 @@ impl SettingsPane {
                         studio.notify(&tf("settings.packageOpened", &[&version]), false);
                     }
                     // A cancel is a choice, not a failure worth a toast.
-                    Err(_) if self.install_cancel.load(Ordering::Relaxed) => {
+                    Err(Halt::Cancelled) => {
                         log::info!("update: switching to {version} cancelled");
                     }
-                    Err(error) => {
+                    Err(Halt::Failed(error)) => {
                         log::warn!(
                             "update: installing {version} failed: {error}; this version stays"
                         );
@@ -667,7 +674,7 @@ impl SettingsPane {
         }
         self.checking = true;
         self.update_status = t("settings.checkingForUpdates");
-        spawn(updates::fetch_releases, |studio, _, _, result| {
+        spawn_long(updates::fetch_releases, |studio, _, _, result| {
             studio.handle(Msg::Settings(SettingsMsg::UpdatesFetched(result)));
         });
     }
@@ -699,9 +706,10 @@ impl SettingsPane {
             "update: switching to {version} · its {} package",
             kind.key()
         );
-        spawn(
+        spawn_long(
             move || {
                 let result = updates::fetch_package(&release, kind)
+                    .map_err(Halt::Failed)
                     .and_then(|package| {
                         let mut report = |received: u64, total: u64| {
                             let msg = SettingsMsg::InstallProgress {
@@ -712,7 +720,7 @@ impl SettingsPane {
                         };
                         updates::download_package(&package, &folder, &cancel, &mut report)
                     })
-                    .and_then(|path| updates::install(&path, kind));
+                    .and_then(|path| updates::install(&path, kind).map_err(Halt::Failed));
                 (version, result)
             },
             |studio, _, _, (version, result)| {
@@ -953,7 +961,7 @@ impl SettingsPane {
         let dirs = studio.host.dirs.clone();
         let whisper = Arc::clone(&studio.host.transcriber);
         let speech = Arc::clone(&studio.host.speech);
-        spawn(
+        spawn_long(
             move || {
                 let report = |progress: concat_speech::DownloadProgress| {
                     let msg = SettingsMsg::ModelProgress {

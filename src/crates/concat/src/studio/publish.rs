@@ -205,6 +205,12 @@ impl Studio {
     /// event of a scrub, a drag, a trim or a knob.
     pub fn publish_lanes(&self, app: &App, models: &Models) {
         let editor = app.global::<Editor>();
+        let beats = self.beats_shown();
+        editor.set_beats_shown(beats.shown);
+        editor.set_beats_tempo(beats.tempo.into());
+        editor.set_beats_note(beats.note.into());
+        editor.set_beats_on(beats.on);
+        editor.set_beats_marks(beats.marks);
         let project = self.project();
         sync(
             &models.tabs,
@@ -265,6 +271,7 @@ impl Studio {
                         } else {
                             Default::default()
                         };
+                    let marks = self.beat_marks(clip);
                     ClipData {
                         id: clip.id.as_str().into(),
                         name: clip.name.as_str().into(),
@@ -294,6 +301,8 @@ impl Studio {
                         wave: wave.0,
                         wave_from: wave.1,
                         wave_span: wave.2,
+                        beats: marks.0,
+                        bars: marks.1,
                         has_audio: self.clip_has_sound(clip),
                         strip: self.strip_of(clip),
                     }

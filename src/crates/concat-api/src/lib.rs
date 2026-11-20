@@ -39,9 +39,9 @@ pub mod rpc;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 
 use base64::Engine as _;
+use concat_core::Halt;
 use concat_effects::Catalogue;
 use concat_effects::manifest::Kind;
 use concat_export::{ExportClip, ExportRequest};
@@ -422,7 +422,7 @@ impl Api {
     /// How many jobs are still running.
     pub fn running(&mut self) -> usize {
         self.jobs.reap(&self.book);
-        self.jobs.threads.len()
+        self.jobs.running.len()
     }
 
     /// Waits for every running job to end. A transport calls this before
@@ -601,6 +601,12 @@ impl Api {
         closed
     }
 
+    /// The graphics adapter `preview.frame` draws on, as its back end and
+    /// its name, or None when it draws on the processor.
+    pub fn adapter(&self) -> Option<(String, String)> {
+        self.monitor.adapter()
+    }
+
     /// [`Request::ProjectList`].
     pub fn recents(&self) -> Vec<ProjectInfo> {
         projects::list(&self.dirs.config)
@@ -771,23 +777,31 @@ impl Api {
             stabilizers: Arc::clone(&self.stabilizers),
             events: Arc::clone(&self.events),
         };
-        let book = Arc::clone(&self.book);
-        let name = started.job.clone();
-        let thread = std::thread::Builder::new()
-            .name(format!("export {}", started.job))
-            .spawn(move || job.run(slot))
-            .map_err(|error| {
-                book.abandon(&name);
-                ApiError::failed(format!("could not start the export: {error}"))
-            })?;
-        self.jobs.threads.push((started.job.clone(), thread));
+        // On the scheduler's foreground lane, across the cores it grants:
+        // the export takes its turn with whatever else in the process
+        // computes, the window's jobs included when the API is the
+        // window's own.
+        use concat_host::jobs::sched::{End, Job, Lane};
+        let ticket = concat_host::jobs::scheduler().submit_then(
+            Job::infallible(Lane::Foreground, move |_| job.run(slot))
+                .label("export")
+                .wide(),
+            |_| {},
+        );
+        if let Some(End::Refused(why)) = ticket.end() {
+            self.book.abandon(&started.job);
+            return Err(ApiError::failed(format!(
+                "could not start the export: {why:?}"
+            )));
+        }
+        self.jobs.running.push((started.job.clone(), ticket));
         Ok(started)
     }
 
     /// [`Request::ExportCancel`].
     pub fn cancel(&mut self, job: &str) -> Result<(), ApiError> {
         self.jobs.reap(&self.book);
-        if !self.jobs.threads.iter().any(|(name, _)| name == job) {
+        if !self.jobs.running.iter().any(|(name, _)| name == job) {
             return Err(ApiError::new(
                 ErrorCode::NotFound,
                 format!("no job {job} is running"),
@@ -894,11 +908,12 @@ impl Api {
     }
 }
 
-/// The jobs the API has begun, by name, with the thread each runs on.
+/// The jobs the API has begun, by name, with the scheduler's ticket for
+/// each.
 #[derive(Default)]
 struct Jobs {
     minted: u64,
-    threads: Vec<(String, JoinHandle<()>)>,
+    running: Vec<(String, concat_host::jobs::sched::Ticket)>,
 }
 
 impl Jobs {
@@ -908,11 +923,11 @@ impl Jobs {
         format!("j{}", self.minted)
     }
 
-    /// Forgets the threads that have ended. One that ended without its
-    /// last event - a panic in the render - is booked as failed.
+    /// Forgets the jobs that have ended. One that ended without its last
+    /// event - a panic in the render - is booked as failed.
     fn reap(&mut self, book: &job::Book) {
-        self.threads.retain(|(name, thread)| {
-            let ended = thread.is_finished();
+        self.running.retain(|(name, ticket)| {
+            let ended = ticket.is_finished();
             if ended {
                 book.abandon(name);
             }
@@ -922,8 +937,8 @@ impl Jobs {
 
     /// Waits for the rest.
     fn finish(&mut self) {
-        for (_, thread) in self.threads.drain(..) {
-            let _ = thread.join();
+        for (_, ticket) in self.running.drain(..) {
+            while ticket.wait(std::time::Duration::from_secs(60)).is_none() {}
         }
     }
 }
@@ -960,13 +975,17 @@ impl ExportJob {
                 width: self.request.width,
                 height: self.request.height,
             },
-            Err(message) => Event::ExportFailed {
+            // Which of the two it was is the job's own answer: the flag
+            // may be raised a moment after a failure, and a failure's words
+            // may say anything.
+            Err(halt) => Event::ExportFailed {
                 job: self.name.clone(),
                 path: self.path.clone(),
-                error: if slot.cancelled() {
-                    ApiError::new(ErrorCode::Cancelled, "The export was cancelled")
-                } else {
-                    ApiError::failed(message)
+                error: match halt {
+                    Halt::Cancelled => {
+                        ApiError::new(ErrorCode::Cancelled, "The export was cancelled")
+                    }
+                    Halt::Failed(message) => ApiError::failed(message),
                 },
             },
         };
@@ -975,10 +994,10 @@ impl ExportJob {
 
     /// Runs every cutout analysis the timeline still needs, one after the
     /// other, so the render that follows cuts every clip it should.
-    fn masks(&self, slot: &concat_host::jobs::Job) -> Result<(), String> {
+    fn masks(&self, slot: &concat_host::jobs::Job) -> Result<(), Halt> {
         for (media_id, request) in &self.masks {
             if slot.cancelled() {
-                return Err("cancelled".to_owned());
+                return Err(Halt::Cancelled);
             }
             self.cutouts.analyse(request, &mut |progress| {
                 let (fetching, fraction) = match progress {
@@ -1004,10 +1023,10 @@ impl ExportJob {
     /// Measures every stabilized clip's media the timeline still needs,
     /// one after the other, so the render that follows steadies every
     /// clip it should.
-    fn steadies(&self, slot: &concat_host::jobs::Job) -> Result<(), String> {
+    fn steadies(&self, slot: &concat_host::jobs::Job) -> Result<(), Halt> {
         for (media_id, request) in &self.steadies {
             if slot.cancelled() {
-                return Err("cancelled".to_owned());
+                return Err(Halt::Cancelled);
             }
             self.stabilizers.analyse(request, &mut |fraction| {
                 (self.events)(Event::StabilizeProgress {
@@ -1624,6 +1643,48 @@ mod tests {
         }));
         assert_eq!(unknown.code, ErrorCode::NotFound);
         assert_eq!(api.stopper().cancel_all(), 0, "nothing left to stop");
+    }
+
+    #[test]
+    fn an_export_that_fails_on_a_file_under_a_folder_named_cancelled_ends_as_failed() {
+        let (mut api, scratch, events) = api();
+        let path = project(&mut api, &scratch, "Word");
+        let added = view(ok(api.dispatch(Request::EditApply {
+            path: path.clone(),
+            command: Box::new(Command::AddMedia {
+                item: still("/nowhere/cancelled/still.png"),
+            }),
+        })));
+        ok(api.dispatch(Request::EditApply {
+            path: path.clone(),
+            command: Box::new(Command::AddClipAtFirstFree {
+                media_id: added.created_id.expect("minted"),
+                start: 0.0,
+            }),
+        }));
+        ok(api.dispatch(Request::ExportRun {
+            path,
+            spec: ExportSpec {
+                output: scratch
+                    .path()
+                    .join("out.mp4")
+                    .to_string_lossy()
+                    .into_owned(),
+                ..ExportSpec::default()
+            },
+        }));
+        api.finish();
+        let events = events.lock().expect("events");
+        match events.last().expect("the job said how it ended") {
+            Event::ExportFailed { error, .. } => {
+                assert_eq!(error.code, ErrorCode::Failed, "{error}");
+                assert!(
+                    error.message.contains("/nowhere/cancelled/still.png"),
+                    "the failure names the file, folder and all: {error}"
+                );
+            }
+            other => panic!("ended with {other:?}"),
+        }
     }
 
     #[test]

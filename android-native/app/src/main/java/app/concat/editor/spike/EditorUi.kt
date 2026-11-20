@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -76,7 +77,15 @@ internal fun EditorImportButton(session: EditorSession, autoImport: Boolean, onI
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
             val started = SystemClock.elapsedRealtime()
-            val file = withContext(Dispatchers.IO) { session.copyIn(uri) }
+            val file = try {
+                withContext(Dispatchers.IO) { session.copyIn(uri) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                onMessage("import failed: ${error.message}")
+                Log.w(TAG, "could not copy $uri", error)
+                return@launch
+            }
             Log.i(TAG, "copied ${file.name} (${file.length() / 1024} KB) in ${SystemClock.elapsedRealtime() - started} ms")
             importFile(file)
         }

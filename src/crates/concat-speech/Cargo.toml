@@ -7,6 +7,7 @@ license.workspace = true
 description = "Speech in and out: on-device transcription with whisper.cpp, and text to speech with Chatterbox and the phone's own voice."
 
 [dependencies]
+concat-core.workspace = true
 concat-host.workspace = true
 concat-media.workspace = true
 serde = { version = "1", features = ["derive"] }
@@ -65,6 +66,8 @@ chatterbox = ["dep:ort", "dep:tokenizers", "dep:concat-vision"]
 # Voice isolation: DeepFilterNet 3, carried in the app, run on ONNX Runtime's
 # CPU provider on every platform. See isolate.rs.
 isolate = ["dep:concat-vision", "dep:realfft"]
+# Beats: Beat This! small, carried in the app, on the CPU. See beats.rs.
+beats = ["dep:concat-vision", "dep:realfft"]
 
 [lints]
 workspace = true

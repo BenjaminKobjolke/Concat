@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Jareer Abdullah
 //! Cutouts, stabilization and Enhance.
 
+use concat_core::Halt;
+
 use super::*;
 
 impl Studio {
@@ -55,7 +57,7 @@ impl Studio {
         self.cutout_jobs.insert(id.clone(), (false, 0.0));
         let cutouts = Arc::clone(&self.host.cutouts);
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let mut last = (false, -1.0f32);
                 let reporting = id.clone();
@@ -89,8 +91,10 @@ impl Studio {
                         studio.request_preview();
                         studio.ensure_cutouts();
                     }
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.removeBackground", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.removeBackground", &[&error]), true);
+                    }
                 }
             },
         );
@@ -145,7 +149,7 @@ impl Studio {
         self.stabilize_jobs.insert(media_id.clone(), 0.0);
         let stabilizers = Arc::clone(&self.host.stabilizers);
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let mut last = -1.0f32;
                 let reporting = media_id.clone();
@@ -173,8 +177,10 @@ impl Studio {
                         studio.request_preview();
                         studio.ensure_stabilizers();
                     }
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.stabilize", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.stabilize", &[&error]), true);
+                    }
                 }
             },
         );
@@ -356,7 +362,7 @@ impl Studio {
             concat_log::span(std::time::Duration::from_secs_f64(duration.max(0.0)))
         );
         self.notify(&t("studio.exportingAudio"), false);
-        spawn_in_project(
+        spawn_long_in_project(
             move || -> Result<concat_host::media::MediaSummary, String> {
                 std::fs::create_dir_all(&out_dir)
                     .map_err(|error| format!("could not create {}: {error}", out_dir.display()))?;
@@ -557,7 +563,7 @@ impl Studio {
         let enhancers = Arc::clone(&self.host.enhancers);
         let epoch = crate::host::project_epoch();
         let media_id = media.id.clone();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let mut last = -1.0f32;
                 let result = enhancers.preview(&request, &mut |progress| {
@@ -597,8 +603,10 @@ impl Studio {
                         made.blend_at(studio.enhance_strength);
                         studio.enhance_preview = Some(made);
                     }
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.enhance", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.enhance", &[&error]), true);
+                    }
                 }
             },
         );
@@ -684,7 +692,7 @@ impl Studio {
         );
         let enhancers = Arc::clone(&self.host.enhancers);
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let mut last = (false, -1.0f32);
                 let reporting = clip_id.clone();
@@ -724,8 +732,10 @@ impl Studio {
                         studio.adopt_enhanced(&clip_id, &path, scale, percent, offset);
                     }
                     Ok(_) => {}
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.enhance", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.enhance", &[&error]), true);
+                    }
                 }
             },
         );
@@ -786,7 +796,7 @@ impl Studio {
         self.notify(&tf("studio.reversing", &[&media.name]), false);
         let reversers = Arc::clone(&self.host.reversers);
         let epoch = crate::host::project_epoch();
-        spawn_in_project(
+        spawn_long_in_project(
             move || {
                 let mut last = -1.0f32;
                 let reporting = clip_id.clone();
@@ -807,8 +817,10 @@ impl Studio {
                 studio.reverse_jobs.remove(&clip_id);
                 match result {
                     Ok(path) => studio.adopt_reversed(&clip_id, &path, start, covered),
-                    Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("studio.reverse", &[&error]), true),
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
+                        studio.notify(&tf("studio.reverse", &[&error]), true);
+                    }
                 }
             },
         );

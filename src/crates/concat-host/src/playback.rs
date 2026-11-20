@@ -531,6 +531,12 @@ struct Shared {
     origin_micros: AtomicI64,
     epoch: std::time::Instant,
     playing: AtomicBool,
+    /// Whether an output stream is up and its callback is what moves the
+    /// clock. While there is none - a machine with no speakers, a remote
+    /// desktop, headphones just unplugged, a stream that failed and is
+    /// being rebuilt - the clock runs on the wall's time instead, so Play
+    /// plays, in silence.
+    driven: AtomicBool,
     /// Silent while set: the clock runs on, the speakers say nothing. A
     /// voiceover takes the picture without the timeline's sound, so the
     /// speakers do not bleed into the microphone.
@@ -554,6 +560,7 @@ impl Shared {
             origin_micros: AtomicI64::new(0),
             epoch: std::time::Instant::now(),
             playing: AtomicBool::new(false),
+            driven: AtomicBool::new(false),
             muted: AtomicBool::new(false),
             peak_left: AtomicU32::new(0),
             peak_right: AtomicU32::new(0),
@@ -572,20 +579,47 @@ impl Shared {
         self.epoch.elapsed().as_micros() as i64
     }
 
-    fn position(&self) -> f64 {
+    /// The position last written: the device's own word while a stream
+    /// drives the clock.
+    fn written(&self) -> f64 {
         self.position_micros.load(Ordering::Relaxed) as f64 / 1_000_000.0
+    }
+
+    /// The clock a buffer at a time while a device drives it; with none,
+    /// the wall's, since nothing else moves it.
+    fn position(&self) -> f64 {
+        if self.playing.load(Ordering::Relaxed) && !self.driven.load(Ordering::Relaxed) {
+            return self.position_now();
+        }
+        self.written()
     }
 
     /// The clock between callbacks: where the last one left it plus the
     /// time since, while playing, so a reader polling faster than the
     /// device's buffers sees time move smoothly and not in buffer steps.
+    /// Held to [`COAST`] past the device's last word while a device drives
+    /// it; with no device there is no word to wait for, and it is the
+    /// wall's time from where Play, a seek or the last stream left it.
     fn position_now(&self) -> f64 {
-        let position = self.position();
+        let position = self.written();
         if !self.playing.load(Ordering::Relaxed) {
             return position;
         }
-        let run_on = self.now_micros() - self.origin_micros.load(Ordering::Relaxed);
-        (run_on as f64 / 1_000_000.0).clamp(position, position + COAST.as_secs_f64())
+        let run_on =
+            (self.now_micros() - self.origin_micros.load(Ordering::Relaxed)) as f64 / 1_000_000.0;
+        if !self.driven.load(Ordering::Relaxed) {
+            return run_on.max(position);
+        }
+        run_on.clamp(position, position + COAST.as_secs_f64())
+    }
+
+    /// Lands the stored position where the clock is now: before a pause
+    /// with no device, where nothing has stored it since Play, and before
+    /// a new stream takes the clock over from the wall.
+    fn settle(&self) {
+        if self.playing.load(Ordering::Relaxed) && !self.driven.load(Ordering::Relaxed) {
+            self.stamp(self.position_now());
+        }
     }
 }
 
@@ -639,6 +673,9 @@ struct Reach {
     /// runs - the file, the stream, the speed and the filters - so that two
     /// spans with the same one are the same sound at the same instant.
     source: String,
+    /// The same but for the filters: a span under another treatment of the
+    /// same file at the same speed is the same instant, sounding otherwise.
+    file: String,
     /// Source seconds the span starts and ends at.
     from: f64,
     to: f64,
@@ -661,15 +698,16 @@ impl Reach {
             return None;
         }
         let speed = concat_media::audio::clamp_speed(spec.speed);
+        let file = format!(
+            "{}\0{:?}\0{:016x}\0{}",
+            spec.path,
+            spec.audio_stream,
+            speed.to_bits(),
+            spec.preserve_pitch,
+        );
         Some(Reach {
-            source: format!(
-                "{}\0{:?}\0{:016x}\0{}\0{}",
-                spec.path,
-                spec.audio_stream,
-                speed.to_bits(),
-                spec.preserve_pitch,
-                spec.chain
-            ),
+            source: format!("{file}\0{}", spec.chain),
+            file,
             from: spec.source_start,
             to: spec.source_start + spec.duration * speed,
             speed,
@@ -694,24 +732,32 @@ const HAIR: f64 = 0.5 / PCM_RATE as f64;
 ///
 /// Any span from the same file under the same treatment will do: what is
 /// left of a clip after a split, a trim inwards, an undo, a second use of
-/// the same recording - each is a stretch of a span already mapped. Of
-/// those, the one that covers most of `spec`; past where it reaches, the
-/// stand-in is silent until the decode lands. None for a span already
-/// decoded, a mixed span, or one nothing decoded overlaps.
+/// the same recording - each is a stretch of a span already mapped. Failing
+/// that, a span of the same file at the same speed under another treatment:
+/// a treatment switched on, off or turned is the sound it was until the new
+/// one is decoded, never silence. Of those, the same treatment first, then
+/// the one that covers most of `spec`; past where it reaches, the stand-in
+/// is silent until the decode lands. None for a span already decoded, a
+/// mixed span, or one nothing decoded overlaps.
 fn stand_in<'a>(cache: &'a HashMap<String, CacheEntry>, spec: &ClipSpec) -> Option<(&'a str, i64)> {
     let wanted = Reach::of(spec)?;
     cache
         .iter()
         .filter_map(|(key, entry)| {
             let reach = entry.reach.as_ref()?;
-            if reach.source != wanted.source {
+            if reach.file != wanted.file {
                 return None;
             }
+            let same = reach.source == wanted.source;
             let covered = reach.to.min(wanted.to) - reach.from.max(wanted.from);
-            (covered > HAIR).then_some((key, entry, reach, covered))
+            (covered > HAIR).then_some((key, entry, reach, same, covered))
         })
-        .max_by(|a, b| a.3.total_cmp(&b.3).then(a.1.last_used.cmp(&b.1.last_used)))
-        .map(|(key, _, reach, _)| (key.as_str(), reach.lead_of(&wanted)))
+        .max_by(|a, b| {
+            a.3.cmp(&b.3)
+                .then(a.4.total_cmp(&b.4))
+                .then(a.1.last_used.cmp(&b.1.last_used))
+        })
+        .map(|(key, _, reach, _, _)| (key.as_str(), reach.lead_of(&wanted)))
 }
 
 /// The decoded span whose samples `spec`'s decode would be, stretch for
@@ -855,6 +901,7 @@ impl Playback {
 
     /// Stops playing; the position holds.
     pub fn pause(&self) {
+        self.shared.settle();
         self.shared.playing.store(false, Ordering::Relaxed);
         if self.fine.swap(false, Ordering::Relaxed) {
             fine_timer(false);
@@ -1062,17 +1109,20 @@ fn decode_worker(playback: &Arc<Playback>) {
                 // Newest first: pop from the back where set_clips pushes.
                 match jobs.pop_back() {
                     Some(job) => break job,
-                    None => jobs = playback.queue.available.wait(jobs).unwrap(),
+                    None => {
+                        jobs = playback
+                            .queue
+                            .available
+                            .wait(jobs)
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    }
                 }
             }
         };
 
         // A span queued by an edit that has since been edited again is dead
         // weight; skip it before paying for FFmpeg.
-        let wanted = playback
-            .specs
-            .lock()
-            .unwrap()
+        let wanted = locked(&playback.specs)
             .iter()
             .any(|spec| decode_key(spec) == job.key);
         if !wanted {
@@ -1237,6 +1287,12 @@ fn decode_key(spec: &ClipSpec) -> String {
     // this retires every one of them (audit 2026-10-04, #3). The disk
     // budget sweeps the orphans.
     eat(b"origin");
+    // A speed with the pitch kept was atempo's; it is the stretcher's now,
+    // which places every sound where the picture is. Only then, so a span
+    // at its own speed keeps its file.
+    if spec.engine().stretched() {
+        eat(b"stretch-bungee");
+    }
     format!("{hash:016x}")
 }
 
@@ -1291,12 +1347,19 @@ fn decode(
     // A changing rate is told by the source's own clock, so the stamps
     // start at zero where the span does.
     let engine = spec.engine();
-    let mut filters: Vec<String> = if engine.tempo.is_empty() {
+    // A speed with the pitch kept goes through the stretcher, before the
+    // filters, as the export mix stretches it (`AudioClip::stretched`).
+    let stretch = engine
+        .stretched()
+        .then(|| engine.stretching(0.0, spec.duration));
+    let mut filters: Vec<String> = if engine.tempo.is_empty() || stretch.is_some() {
         Vec::new()
     } else {
         vec!["asetpts=PTS-STARTPTS".to_owned()]
     };
-    filters.extend(engine.retime_filters(0.0, "p"));
+    if stretch.is_none() {
+        filters.extend(engine.retime_filters(0.0, "p"));
+    }
     if !spec.chain.is_empty() {
         filters.push(spec.chain.clone());
     }
@@ -1316,6 +1379,7 @@ fn decode(
             channels: 2,
             format: SampleFormat::I16,
             stream: spec.audio_stream.map(|index| index as usize),
+            stretch,
         },
     )
     .map_err(|error| error.to_string())?;
@@ -1477,6 +1541,12 @@ fn supervise_stream(
             Ok((stream, device_name)) => {
                 backoff = std::time::Duration::from_secs(1);
                 reported_missing = false;
+                // The stored position is brought up to where the wall has
+                // the clock before the stream's word is waited for, so the
+                // playhead does not start back where Play left it for the
+                // buffer it takes the stream to speak.
+                shared.settle();
+                shared.driven.store(true, Ordering::Relaxed);
 
                 // Watch for the two reasons to rebuild: the stream reported
                 // an error, or the default device is no longer the one the
@@ -1505,6 +1575,9 @@ fn supervise_stream(
                         break;
                     }
                 }
+                // The wall's time carries the clock until the next stream
+                // has it, from where this one left it.
+                shared.driven.store(false, Ordering::Relaxed);
                 // `_stream` drops here, releasing the device before rebuild.
             }
             Err(error) => {
@@ -1526,12 +1599,17 @@ fn supervise_stream(
                     while let Ok(message) = receiver.try_recv() {
                         match message {
                             Msg::SetClips(next) => *locked(&last_active) = next,
-                            Msg::Play(at) => {
-                                shared.stamp(at);
-                                shared.playing.store(true, Ordering::Relaxed);
-                            }
-                            Msg::Pause => shared.playing.store(false, Ordering::Relaxed),
-                            Msg::Seek(at) => shared.stamp(at),
+                            // Play and a seek landed the clock themselves
+                            // when they were asked for. These are read
+                            // here a backoff later, up to half a minute,
+                            // and the clock has been running on the wall
+                            // since: landing it again would throw the
+                            // playhead back to where it started.
+                            Msg::Play(_) => {}
+                            // The window stopped the clock and landed it
+                            // itself, in `pause`; the message is only the
+                            // stream's to act on.
+                            Msg::Pause | Msg::Seek(_) => {}
                         }
                     }
                 }
@@ -1603,6 +1681,9 @@ where
 
     let failed = Arc::new(AtomicBool::new(false));
     let rx = Arc::clone(rx);
+    // A second hold on the clock, for the stream's error to say at once
+    // that nothing drives it now.
+    let unheard = Arc::clone(shared);
     let shared = Arc::clone(shared);
 
     let stream = device
@@ -1709,11 +1790,17 @@ where
             {
                 let events = Arc::clone(events);
                 let failed = Arc::clone(&failed);
+                let shared = Arc::clone(&unheard);
                 move |error| {
                     // The supervisor rebuilds on this flag; the report says
                     // why the sound hiccuped.
                     report(events.as_ref(), format!("audio stream error: {error}"));
                     failed.store(true, Ordering::Relaxed);
+                    // At once, not at the supervisor's next look: the
+                    // clock goes on by the wall from the device's last
+                    // word, where it used to stand still for up to a
+                    // second while the stream was rebuilt.
+                    shared.driven.store(false, Ordering::Relaxed);
                 }
             },
             None,
@@ -1732,9 +1819,51 @@ mod tests {
     use super::{COAST, Shared, sweep_plan, wav_data_range};
     use std::sync::atomic::Ordering;
 
+    /// A machine with no speakers, a remote desktop, headphones unplugged:
+    /// no stream ever calls back. Play moved the playhead a tenth of a
+    /// second and stopped. The clock is the wall's then, a pause holds it
+    /// where it got to, and a stream that comes up takes over from there.
+    #[test]
+    fn with_no_device_the_clock_is_the_walls_and_a_pause_holds_it() {
+        let shared = Shared::new();
+        shared.stamp(5.0);
+        shared.playing.store(true, Ordering::Relaxed);
+        let wait = COAST * 2;
+        std::thread::sleep(wait);
+        let now = shared.position_now();
+        assert!(now >= 5.0 + wait.as_secs_f64(), "{now}");
+        assert!(shared.position() >= now, "the stepped clock moves with it");
+
+        // Paused: landed where it got to, and held.
+        shared.settle();
+        shared.playing.store(false, Ordering::Relaxed);
+        let held = shared.position();
+        assert!(held >= now, "{held}");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert_eq!(shared.position_now(), held);
+        assert_eq!(shared.position(), held);
+
+        // A stream comes up while playing: it is seeded from where the
+        // wall has the clock, and from then on its word is waited for.
+        shared.playing.store(true, Ordering::Relaxed);
+        shared.stamp(held);
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        shared.settle();
+        shared.driven.store(true, Ordering::Relaxed);
+        let seeded = shared.position();
+        assert!(seeded >= held + 0.03, "{seeded}");
+        std::thread::sleep(COAST + std::time::Duration::from_millis(20));
+        let waited = shared.position_now();
+        assert!(
+            (waited - (seeded + COAST.as_secs_f64())).abs() < 1e-3,
+            "{waited}"
+        );
+    }
+
     #[test]
     fn the_clock_runs_on_between_buffers_but_not_past_a_stall() {
         let shared = Shared::new();
+        shared.driven.store(true, Ordering::Relaxed);
         shared.stamp(5.0);
         std::thread::sleep(std::time::Duration::from_millis(20));
         assert_eq!(shared.position_now(), 5.0, "a paused clock holds");
@@ -1850,6 +1979,91 @@ mod tests {
             super::with_sound_layers(vec![tone_spec(path, 0.0, 2.0)], &[idle]).len(),
             1
         );
+    }
+
+    /// A clip at another speed, its pitch kept, plays every sound where its
+    /// picture is: a 20 ms pip at every source second, decoded for the
+    /// preview at half speed and through a speed curve, is heard within a
+    /// millisecond of where the clip's time map puts that second, as the
+    /// export mix's are (the corpus's speed case). FFmpeg's atempo, which
+    /// played these before, put them up to 53 ms early.
+    #[test]
+    fn a_stretched_clip_plays_every_sound_where_its_picture_is() {
+        let dir = std::env::temp_dir().join(format!("concat-pips-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let rate = super::PCM_RATE;
+        let mut data = Vec::new();
+        for index in 0..rate * 6 {
+            let into = index % rate;
+            let value = if into < rate / 50 {
+                let t = f64::from(into) / f64::from(rate);
+                (0.5 * (2.0 * std::f64::consts::PI * 1000.0 * t).sin() * 32767.0) as i16
+            } else {
+                0
+            };
+            data.extend_from_slice(&value.to_le_bytes());
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        let source = dir.join("pips.wav");
+        {
+            let mut file = std::fs::File::create(&source).expect("creates");
+            let mut writer = super::WavWriter::start(&mut file).expect("starts");
+            writer.write(&mut file, &data).expect("writes");
+            writer.finish(&mut file).expect("finishes");
+        }
+        let onsets = |pcm: &super::Pcm| {
+            let mut found = Vec::new();
+            let mut frame = 0i64;
+            while frame < pcm.frames as i64 {
+                if pcm.sample(frame, 0).abs() < 0.02 {
+                    frame += 1;
+                    continue;
+                }
+                let start = frame;
+                let mut peak = 0.0f32;
+                while frame < pcm.frames as i64 && frame < start + i64::from(rate) / 10 {
+                    peak = peak.max(pcm.sample(frame, 0).abs());
+                    frame += 1;
+                }
+                let onset = (start..frame)
+                    .find(|at| pcm.sample(*at, 0).abs() >= 0.3 * peak)
+                    .unwrap_or(start);
+                found.push(onset as f64 / f64::from(rate));
+            }
+            found
+        };
+
+        // Half speed: source second n at 2n.
+        let mut slow = tone_spec(&source, 0.0, 12.0);
+        slow.speed = 0.5;
+        let pcm = super::decode(&slow, &dir, &super::decode_key(&slow), None).expect("decodes");
+        let heard = onsets(&pcm);
+        assert_eq!(heard.len(), 6, "{heard:?}");
+        for (second, at) in heard.iter().enumerate() {
+            let off = (at - 2.0 * second as f64) * 1000.0;
+            assert!(
+                off.abs() <= 1.0,
+                "half speed: second {second} heard {off:+.2} ms off"
+            );
+        }
+
+        // Steps of speed: 1x for 1 s, 4x for 0.5 s (source 1 to 3), 0.5x
+        // after: source seconds 0 to 5 at 0, 1, 1.25, 1.5, 3.5 and 5.5 s.
+        let mut curve = tone_spec(&source, 0.0, 8.0);
+        curve.tempo = vec![(0.0, 1.0), (1.0, 4.0), (1.5, 0.5)];
+        curve.speed = 0.75;
+        let pcm = super::decode(&curve, &dir, &super::decode_key(&curve), None).expect("decodes");
+        let heard = onsets(&pcm);
+        let _ = std::fs::remove_dir_all(&dir);
+        let expected = [0.0, 1.0, 1.25, 1.5, 3.5, 5.5];
+        assert_eq!(heard.len(), expected.len(), "{heard:?}");
+        for (at, want) in heard.iter().zip(expected) {
+            let off = (at - want) * 1000.0;
+            assert!(
+                off.abs() <= 3.0,
+                "the curve: a pip due at {want} s heard {off:+.2} ms off"
+            );
+        }
     }
 
     /// A stretch under a sound layer decodes to the mix with the layer
@@ -2053,14 +2267,51 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A treatment switched on under a playing clip: the clip plays on, from
+    /// the sound it had, the moment the change is handed over, while the
+    /// treated sound is decoded - never a stretch of silence until it lands.
+    #[test]
+    fn a_changed_treatment_plays_the_sound_it_had_until_its_own_lands() {
+        let dir = std::env::temp_dir().join(format!("concat-engine-treat-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let source = rising_tone(&dir);
+        let plain = tone_spec(&source, 0.0, 3.0);
+        let playback = std::sync::Arc::new(idle(cached(&plain, &dir)));
+        playback.set_clips(dir.clone(), vec![plain.clone()]);
+
+        let mut treated = plain.clone();
+        treated.chain = "afftdn=nf=-25".to_owned();
+        playback.set_clips(dir.clone(), vec![treated.clone()]);
+        let playing = super::locked(&playback.last_active).clone();
+        assert_eq!(playing.len(), 1, "the clip still plays");
+        let had = super::locked(&playback.cache)
+            .get(&super::decode_key(&plain))
+            .map(|entry| std::sync::Arc::as_ptr(&entry.pcm));
+        assert_eq!(
+            Some(std::sync::Arc::as_ptr(&playing[0].pcm)),
+            had,
+            "from the sound it had"
+        );
+        assert_eq!(playing[0].lead, 0);
+        assert_eq!(
+            super::locked(&playback.queue.jobs).len(),
+            1,
+            "the treated sound is decoded all the same"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// What may stand in, and what may be copied. The same file under a
     /// filter is the same sound under that filter, so it stands in, but a
     /// filter carries what came before the cut into the stretch after it,
-    /// so it is decoded all the same; another filter, another speed or a
-    /// stretch the span never reached is another sound. A span reaching
-    /// only part of the way plays where it reaches.
+    /// so it is decoded all the same. The same file under another filter
+    /// stands in too - a treatment changed plays the sound it had until the
+    /// new one is decoded, never silence - but the same treatment comes
+    /// first, and neither is copied. Another speed or a stretch the span
+    /// never reached is another instant. A span reaching only part of the
+    /// way plays where it reaches.
     #[test]
-    fn only_the_same_sound_stands_in_and_only_a_plain_one_is_copied() {
+    fn the_same_instant_stands_in_and_only_a_plain_one_is_copied() {
         let dir = std::env::temp_dir().join(format!("concat-stand-in-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("a folder");
         let source = rising_tone(&dir);
@@ -2082,7 +2333,25 @@ mod tests {
 
         let mut other = half.clone();
         other.chain = "highpass=f=2000".to_owned();
-        assert!(super::stand_in(&cache, &other).is_none(), "another filter");
+        assert_eq!(
+            super::stand_in(&cache, &other).map(|(_, lead)| lead),
+            Some(48_000),
+            "another filter: the sound it had, not silence"
+        );
+        assert!(
+            super::copy_source(&cache, &other).is_none(),
+            "another filter: decoded"
+        );
+        let mut both = cached(&filtered, &dir);
+        let mut highpassed = filtered.clone();
+        highpassed.chain = other.chain.clone();
+        both.extend(cached(&highpassed, &dir));
+        let own = super::decode_key(&highpassed);
+        assert_eq!(
+            super::stand_in(&both, &other).map(|(key, _)| key.to_owned()),
+            Some(own),
+            "its own treatment first"
+        );
         let mut faster = half.clone();
         faster.speed = 2.0;
         assert!(super::stand_in(&cache, &faster).is_none(), "another speed");

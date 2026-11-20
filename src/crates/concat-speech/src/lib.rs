@@ -17,6 +17,8 @@
 //! (whisper.cpp, and ONNX Runtime for Chatterbox) stay out of everything
 //! that does not speak.
 
+#[cfg(feature = "beats")]
+pub mod beats;
 #[cfg(feature = "chatterbox")]
 pub mod chatterbox;
 #[cfg(feature = "isolate")]
@@ -26,6 +28,7 @@ pub mod tts;
 #[cfg(feature = "isolate")]
 pub mod vocals;
 
+use concat_core::Halt;
 pub use transcribe::Transcriber;
 pub use tts::Speech;
 
@@ -70,6 +73,7 @@ pub(crate) fn open_decoder(
             channels: channels as u16,
             format: SampleFormat::F32,
             stream,
+            stretch: None,
         },
     )
     .map_err(|error| error.to_string())
@@ -133,7 +137,8 @@ pub struct DownloadProgress {
 /// arrived. See [`concat_host::models::fetch`], which also says - when
 /// every source fails - which hosts were tried and why they likely failed.
 ///
-/// `file` is what the model is called on the mirror.
+/// `file` is what the model is called on the mirror. Setting `cancel`
+/// ends it with [`Halt::Cancelled`].
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fetch_model(
     file: &str,
@@ -144,7 +149,7 @@ pub(crate) fn fetch_model(
     sha256: &str,
     cancel: &std::sync::atomic::AtomicBool,
     progress: &mut dyn FnMut(DownloadProgress),
-) -> Result<(u64, u64), String> {
+) -> Result<(u64, u64), Halt> {
     concat_host::models::fetch(
         file,
         upstream,
@@ -152,7 +157,6 @@ pub(crate) fn fetch_model(
         estimate,
         sha256,
         cancel,
-        "download cancelled",
         &mut |received, total| {
             progress(DownloadProgress {
                 id: id.to_owned(),

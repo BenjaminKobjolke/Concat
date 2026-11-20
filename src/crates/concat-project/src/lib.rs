@@ -703,6 +703,79 @@ mod tests {
         assert_eq!(clip.scale, 1.0, "the constant under the keys is untouched");
     }
 
+    /// A picture's width and height key the way its scale does: by name in
+    /// the document, held to the field's range, ridden between keys, and a
+    /// fill puts the picture back in its shape with a key where the
+    /// playhead is rather than by dropping the ride.
+    #[test]
+    fn a_stretch_keys_like_a_scale() {
+        use crate::model::{Framing, KeyEase, KeyProperty, ranges::MAX_STRETCH};
+        let (mut editor, _, clip_id) = fixture();
+        for (at, value) in [(0.0, 1.0), (1.0, 2.0), (0.25, 99.0)] {
+            editor
+                .apply(Command::SetClipKey {
+                    clip_id: clip_id.clone(),
+                    property: KeyProperty::StretchX,
+                    at,
+                    value,
+                    ease: KeyEase::LINEAR,
+                })
+                .expect("keys");
+        }
+        editor
+            .apply(Command::ClearClipKey {
+                clip_id: clip_id.clone(),
+                property: KeyProperty::StretchX,
+                at: 0.25,
+            })
+            .expect("clears");
+        let clip = &editor.project().active().clips[0];
+        assert!((clip.value_at(KeyProperty::StretchX, 0.5) - 1.5).abs() < 1e-12);
+        assert_eq!(clip.value_at(KeyProperty::StretchY, 0.5), 1.0, "unkeyed");
+
+        let document = editor.to_document(&settings());
+        let names: Vec<&str> = document["timelines"][0]["clips"][0]["keys"]
+            .as_array()
+            .expect("keys")
+            .iter()
+            .filter_map(|key| key["property"].as_str())
+            .collect();
+        assert_eq!(names, ["stretchX", "stretchX"]);
+        let read = Editor::from_document(&document).expect("loads");
+        assert_eq!(read.project().active().clips[0].keys, clip.keys);
+        for property in KeyProperty::ALL {
+            assert_eq!(KeyProperty::from_name(property.name()), Some(property));
+        }
+
+        editor
+            .apply(Command::SetClipKey {
+                clip_id: clip_id.clone(),
+                property: KeyProperty::StretchY,
+                at: 0.5,
+                value: 99.0,
+                ease: KeyEase::LINEAR,
+            })
+            .expect("keys");
+        let clip = &editor.project().active().clips[0];
+        let tall = clip.keys_on(KeyProperty::StretchY).next().expect("a key");
+        assert_eq!(tall.value, MAX_STRETCH, "clamped like the field");
+
+        editor
+            .apply(Command::FrameClip {
+                clip_id: clip_id.clone(),
+                framing: Framing::Fill,
+                at: 0.5,
+            })
+            .expect("fills");
+        let clip = &editor.project().active().clips[0];
+        let wide: Vec<(f64, f64)> = clip
+            .keys_on(KeyProperty::StretchX)
+            .map(|key| (key.at, key.value))
+            .collect();
+        assert_eq!(wide, vec![(0.0, 1.0), (0.5, 1.0), (1.0, 2.0)]);
+        assert_eq!(clip.value_at(KeyProperty::StretchY, 0.5), 1.0);
+    }
+
     /// A turned picture fills further and fits smaller, and a crop is what
     /// is sized: a picture cropped to a square fills a square frame at one.
     #[test]
@@ -3912,6 +3985,74 @@ mod tests {
         );
     }
 
+    /// A file's beats are asked for on that file alone: set, saved as a
+    /// word, left out of the document while off, undone like any edit; an
+    /// unknown item is a no-op.
+    #[test]
+    fn a_files_beats_are_its_own_undoable_edit_that_round_trips() {
+        use crate::model::BeatMarks;
+        let (mut editor, media_id, _clip_id) = fixture();
+        assert_eq!(editor.project().media[0].beats, None);
+        let before = editor.project().clone();
+
+        let on = editor
+            .apply(Command::SetMediaBeats {
+                media_id: media_id.clone(),
+                marks: Some(BeatMarks::Zoom),
+            })
+            .expect("sets");
+        assert!(on.applied);
+        editor
+            .apply(Command::SetMediaBeats {
+                media_id: media_id.clone(),
+                marks: Some(BeatMarks::Bar),
+            })
+            .expect("sets");
+        let saved = editor.to_document(&settings());
+        assert_eq!(saved["media"][0]["beats"], "bar");
+        let reopened = Editor::from_document(&saved).expect("loads");
+        assert_eq!(reopened.project().media[0].beats, Some(BeatMarks::Bar));
+        let untold = crate::doc::to_document(&settings(), &before);
+        assert!(untold["media"][0].get("beats").is_none());
+        let mut odd = saved.clone();
+        odd["media"][0]["beats"] = json!("everyThird");
+        let tolerant = Editor::from_document(&odd).expect("loads");
+        assert_eq!(tolerant.project().media[0].beats, None);
+
+        editor
+            .apply(Command::SetMediaBeats {
+                media_id: media_id.clone(),
+                marks: None,
+            })
+            .expect("clears");
+        assert_eq!(editor.project().media[0].beats, None);
+        let gone = editor
+            .apply(Command::SetMediaBeats {
+                media_id: "m999".to_owned(),
+                marks: Some(BeatMarks::Every),
+            })
+            .expect("an unknown item is a no-op");
+        assert!(!gone.applied);
+        editor.undo();
+        assert_eq!(
+            editor.project().media[0].beats,
+            Some(BeatMarks::Bar),
+            "undo of the switch-off brings the file's marks back"
+        );
+
+        let parsed: Command = serde_json::from_value(json!({
+            "op": "setMediaBeats", "mediaId": "m1", "marks": "second"
+        }))
+        .expect("parses");
+        assert!(matches!(
+            parsed,
+            Command::SetMediaBeats {
+                marks: Some(BeatMarks::Second),
+                ..
+            }
+        ));
+    }
+
     #[test]
     fn a_slot_fills_in_place_keeping_the_template_timing() {
         let (mut editor, media_id, clip_id) = fixture();
@@ -5506,6 +5647,7 @@ mod tests {
             audio_tracks: vec![],
             placeholder: false,
             color_range: None,
+            beats: None,
             color_space: Default::default(),
             origin: None,
             extra: Default::default(),
@@ -5545,6 +5687,7 @@ mod tests {
             audio_tracks: vec![],
             placeholder: false,
             color_range: None,
+            beats: None,
             color_space: Default::default(),
             origin: None,
             extra: Default::default(),

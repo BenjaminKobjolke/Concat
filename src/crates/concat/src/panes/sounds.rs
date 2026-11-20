@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use concat_core::Halt;
 use concat_host::sounds::{self, Catalogue, Library, Sound};
 use concat_project::Command;
 use slint::SharedString;
@@ -89,7 +90,7 @@ pub enum SoundsMsg {
     /// A Concat sound's download, how far.
     Fetching(String, f32),
     /// A Concat sound's download is done.
-    Fetched(String, Result<PathBuf, String>),
+    Fetched(String, Result<PathBuf, Halt>),
 }
 
 /// The page's state.
@@ -153,7 +154,7 @@ impl SoundsPane {
                 if self.concat != ConcatState::Ready {
                     self.concat = ConcatState::Loading;
                 }
-                crate::host::spawn(
+                crate::host::spawn_long(
                     move || sounds::fetch_catalogue(&dirs),
                     |studio, _, _, result| {
                         studio.handle(Msg::Sounds(SoundsMsg::ConcatLoaded(result)));
@@ -202,8 +203,8 @@ impl SoundsPane {
                             studio.place_sound(&name, &path, track_id, start);
                         }
                     },
-                    Err(error) if error == "cancelled" => {}
-                    Err(error) => {
+                    Err(Halt::Cancelled) => {}
+                    Err(Halt::Failed(error)) => {
                         studio.notify(&tf("sounds.downloadFailed", &[&name, &error]), true);
                     }
                 }
@@ -219,7 +220,7 @@ impl SoundsPane {
                 }
                 self.importing = true;
                 let dir = self.library.dir.clone();
-                crate::host::spawn(
+                crate::host::spawn_long(
                     move || {
                         taken
                             .iter()
@@ -334,7 +335,7 @@ impl SoundsPane {
         self.fetching.insert(card.to_owned(), (0.0, then));
         let cancel = Arc::clone(&self.cancel);
         let (key, done) = (card.to_owned(), card.to_owned());
-        crate::host::spawn(
+        crate::host::spawn_long(
             move || {
                 sounds::fetch_sound(&dirs, &sound, &cancel, &mut |received, total| {
                     if total > 0 {

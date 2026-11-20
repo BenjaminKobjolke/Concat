@@ -56,6 +56,11 @@ Concat bundles two models:
   Schröter, code and weights dual-licensed MIT or Apache-2.0; Concat takes
   it under MIT). It is voice isolation's model. The licence texts are in
   `src/crates/concat-speech/assets/deepfilternet3/`.
+- Beat This!'s small model (`small0`, https://github.com/CPJKU/beat_this,
+  Copyright (c) 2024 Institute of Computational Perception, JKU Linz,
+  Austria; code and weights MIT), exported to ONNX by Concat. It finds a
+  song's beats and downbeats. The licence text is in
+  `src/crates/concat-speech/assets/beat-this/`.
 
 ## Slint (GPL-3.0-only, or Royalty-free for commercial builds)
 
@@ -188,6 +193,19 @@ Releases up to 0.2.8 also used the sherpa-onnx runtime (Apache-2.0), which
 carried espeak-ng (GPL-3.0-or-later), with the Kokoro (Apache-2.0) and Pocket
 TTS (CC-BY-4.0) voices; those releases' own notices describe them. No current
 build contains any of them.
+
+## Bungee, Eigen and PFFFT
+
+A clip played at another speed with its pitch kept is stretched by
+Bungee (https://github.com/bungee-audio-stretch/bungee, Copyright (C)
+2020-2026 Parabola Research Limited, MPL-2.0), compiled into the app with
+Eigen (https://gitlab.com/libeigen/eigen, MPL-2.0) and PFFFT
+(https://bitbucket.org/jpommier/pffft, Copyright (c) 2013 Julien Pommier,
+FFTPACK licence, Copyright (c) 2004 the University Corporation for
+Atmospheric Research). Their source, unmodified, with their licence texts
+and the commits it is taken from, is in
+`src/crates/concat-stretch/third_party/`; MPL-2.0's text is at
+https://mozilla.org/MPL/2.0/.
 
 ## ONNX Runtime
 
