@@ -23,6 +23,10 @@ fn main() {
         .define("BUNGEE_SELF_TEST", Some("0"))
         .define("eigen_assert", Some("BUNGEE_ASSERT1"))
         .define("EIGEN_DONT_PARALLELIZE", Some("1"))
+        // Eigen under a name of its own: ONNX Runtime's static build carries
+        // another Eigen (AVX2, 32-byte aligned), and the linker would keep its
+        // inline allocator for both, so Bungee freed what it had not allocated.
+        .define("Eigen", Some("BungeeEigen"))
         .define("BUNGEE_VERSION", Some("\"61f52bf\""))
         // Signed overflow wraps, as Bungee's CMake asks of GCC and Clang.
         .flag_if_supported("-fwrapv")
