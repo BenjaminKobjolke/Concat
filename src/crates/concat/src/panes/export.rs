@@ -136,7 +136,9 @@ impl ExportPane {
                 self.phase = ExportPhase::Idle;
                 self.message.clear();
                 // The timeline's own size: the one rung that can be picked;
-                // and its own rate, first on the rate list.
+                // and its own rate, first on the rate list. Destination
+                // folder is set when the project opens (#750 / #836): the
+                // project folder, or a Browse pick remembered for it.
                 self.resolution = Self::own_rung(studio);
                 self.rate = 0;
                 self.follow_canvas(studio);
@@ -177,7 +179,19 @@ impl ExportPane {
                     )));
                 });
             }
-            ExportMsg::FolderChosen(folder) => self.folder = folder,
+            ExportMsg::FolderChosen(folder) => {
+                self.folder = folder;
+                // Remember the Browse pick for this project so the next open
+                // uses it instead of the project folder (#836).
+                if let Some(session) = studio.session.as_ref() {
+                    let path = session.path().to_string();
+                    studio
+                        .prefs
+                        .export_folders
+                        .insert(path, self.folder.clone());
+                    studio.prefs.save(&studio.host.dirs);
+                }
+            }
             ExportMsg::Reveal => {
                 if !self.written.is_empty()
                     && let Err(error) = platform::reveal(&self.written)
@@ -528,6 +542,56 @@ impl ExportPane {
                 let job = job;
                 let cancel = job.cancel_flag();
                 let stopped = || cancel.load(std::sync::atomic::Ordering::Relaxed);
+                let mut report = |progress: export::Progress| {
+                    let fraction = if progress.total > 0 {
+                        progress.frame as f32 / progress.total as f32
+                    } else {
+                        0.0
+                    };
+                    let stage = match progress.stage {
+                        "rendering" => t("export.renderingVideo"),
+                        concat_export::RENDERING_IN_SOFTWARE => t("export.renderingInSoftware"),
+                        "mixing audio" => t("export.mixingAudio"),
+                        "muxing" => t("export.finalisingFile"),
+                        other => other.to_owned(),
+                    };
+                    on_ui(move |studio, _, _| {
+                        studio.handle(Msg::Export(ExportMsg::Progress { fraction, stage }));
+                    });
+                };
+                // In a process of its own, on a device of its own, where
+                // the machine can start one: a driver, decoder or encoder
+                // that crashes there costs the export one try, drawn again
+                // on the CPU, and never the editor (#868, #824). The
+                // titles are painted there too. Where no helper starts - a
+                // phone, a sandbox that forbids it - or when
+                // CONCAT_EXPORT_IN_PROCESS is set, the export runs here, as
+                // it always did.
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                if std::env::var_os("CONCAT_EXPORT_IN_PROCESS").is_none()
+                    && let Ok(program) = std::env::current_exe()
+                {
+                    let apart = concat_host::export_apart::Order::new(
+                        project.clone(),
+                        project_dir.clone(),
+                        &spec,
+                        width,
+                        height,
+                        num,
+                        den,
+                    );
+                    // The monitor's idle decoders let go first, as below:
+                    // the chip has few decoder sessions, and the helper's
+                    // own decoders need them.
+                    concat_host::scheduler()
+                        .pool()
+                        .close_idle(std::time::Duration::ZERO);
+                    if let Some(result) =
+                        concat_host::export_apart::run(&program, &apart, cancel, &mut report)
+                    {
+                        return result;
+                    }
+                }
                 // At the export's own frame, not the project's: a 4K export
                 // of an HD edit was its captions painted at HD and scaled
                 // up, soft. The API's export paints them so too.
@@ -564,23 +628,7 @@ impl ExportPane {
                 // thread (#324); see `Monitor::off_thread`. None there or
                 // without a GPU, and the render then opens what it can.
                 let compositor = monitor.off_thread();
-                export::run_on(&request, compositor, cancel, |progress| {
-                    let fraction = if progress.total > 0 {
-                        progress.frame as f32 / progress.total as f32
-                    } else {
-                        0.0
-                    };
-                    let stage = match progress.stage {
-                        "rendering" => t("export.renderingVideo"),
-                        concat_export::RENDERING_IN_SOFTWARE => t("export.renderingInSoftware"),
-                        "mixing audio" => t("export.mixingAudio"),
-                        "muxing" => t("export.finalisingFile"),
-                        other => other.to_owned(),
-                    };
-                    on_ui(move |studio, _, _| {
-                        studio.handle(Msg::Export(ExportMsg::Progress { fraction, stage }));
-                    });
-                })
+                export::run_on(&request, compositor, cancel, &mut report)
             },
             |studio, _, _, result| studio.handle(Msg::Export(ExportMsg::Finished(result))),
         );

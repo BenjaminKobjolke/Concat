@@ -1218,6 +1218,7 @@ dependencies = [
  "concat-speech",
  "concat-text",
  "concat-vision",
+ "concat-worker",
  "dirs",
  "image",
  "libc",
@@ -1261,6 +1262,7 @@ dependencies = [
  "concat-export",
  "concat-host",
  "concat-project",
+ "concat-speech",
  "png 0.17.16",
  "schemars",
  "serde",
@@ -1321,6 +1323,7 @@ dependencies = [
  "concat-core",
  "concat-project",
  "naga",
+ "proptest",
  "serde",
  "thiserror 2.0.20",
  "toml",
@@ -1355,6 +1358,7 @@ dependencies = [
  "concat-sched",
  "concat-text",
  "concat-vision",
+ "concat-worker",
  "cpal",
  "libc",
  "log",
@@ -1409,6 +1413,7 @@ name = "concat-mobile"
 version = "0.2.12"
 dependencies = [
  "android_logger",
+ "concat-api",
  "concat-core",
  "concat-export",
  "concat-host",
@@ -1421,6 +1426,7 @@ dependencies = [
  "ndk-sys 0.6.0+11769913",
  "pollster",
  "raw-window-handle",
+ "serde_json",
  "thiserror 2.0.20",
  "uniffi",
  "wgpu",
@@ -1488,6 +1494,7 @@ dependencies = [
  "concat-log",
  "concat-media",
  "concat-vision",
+ "concat-worker",
  "log",
  "ort",
  "realfft",
@@ -1526,8 +1533,19 @@ version = "0.2.12"
 dependencies = [
  "concat-core",
  "concat-project",
+ "log",
  "ort",
  "png 0.17.16",
+]
+
+[[package]]
+name = "concat-worker"
+version = "0.2.12"
+dependencies = [
+ "concat-core",
+ "log",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

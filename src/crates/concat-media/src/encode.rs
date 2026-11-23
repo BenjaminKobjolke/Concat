@@ -887,6 +887,28 @@ static TOLD: OnceLock<fn(&str, Option<bool>)> = OnceLock::new();
 
 /// The encoder linked here whose name is `name`, as the name the answers
 /// are remembered under.
+/// Every encoder whose opening this process has found out, and whether it
+/// opened: what an export in a process of its own is handed, so it opens
+/// no encoder the probe already found does not, and asks no question twice.
+pub fn known_encoders() -> Vec<(String, bool)> {
+    opened_before()
+        .lock()
+        .map(|map| {
+            map.iter()
+                .map(|(name, opened)| ((*name).to_owned(), *opened))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Takes another process's word on whether `encoder_name` opens, as
+/// [`known_encoders`] gave it. A name this build does not link is ignored.
+pub fn assume_encoder(encoder_name: &str, opened: bool) {
+    if let Some(name) = linked_name(encoder_name) {
+        remember(name, opened);
+    }
+}
+
 fn linked_name(name: &str) -> Option<&'static str> {
     VideoCodec::ALL
         .iter()
@@ -1199,7 +1221,10 @@ fn open_video(
     if average {
         let kbps = ceiling(options.bitrate_kbps);
         video.set_bit_rate(kbps as usize * 1000);
-        video.set_max_bit_rate(kbps as usize * 1500);
+        // SVT accepts a maximum bitrate only in CRF mode.
+        if encoder_name != "libsvtav1" {
+            video.set_max_bit_rate(kbps as usize * 1500);
+        }
     }
     let bitrate = format!("{}k", options.bitrate_kbps);
     // The average's ceiling, half again the target, and a buffer of two
@@ -1226,8 +1251,7 @@ fn open_video(
             "coder" => "cabac",
             "allow_skip_frames" => "0",
         },
-        // The context carries the target and the ceiling (above); the
-        // encoder runs its own VBR to them.
+        // The context carries the average bitrate target.
         "libsvtav1" if average => ffmpeg::dict! {
             "preset" => &svt_preset(&options.preset).to_string(),
         },
@@ -2635,6 +2659,35 @@ mod tests {
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn average_av1_export_uses_svt_when_available() {
+        ffi::init();
+        if encoder::find_by_name("libsvtav1").is_none() {
+            return;
+        }
+        let path =
+            std::env::temp_dir().join(format!("concat-av1-average-{}.mp4", std::process::id()));
+        let options = EncodeOptions {
+            codec: VideoCodec::Av1,
+            rate_mode: RateMode::Average,
+            bitrate_kbps: 4000,
+            hardware: false,
+            ..EncodeOptions::default()
+        };
+        let mut encoder =
+            Encoder::create(&path, 320, 180, FrameRate::FILM, &options).expect("opens AV1");
+        assert_eq!(encoder.encoder_name(), "libsvtav1");
+        encoder
+            .write_frame(&Frame::black(320, 180))
+            .expect("writes");
+        encoder.finish().expect("finishes");
+        // Let go of the file before removing it: Windows refuses to delete a
+        // file a handle still holds (os error 32), and the encoder holds its
+        // output until it is dropped.
+        drop(encoder);
+        let _ = std::fs::remove_file(path);
     }
 
     /// An average-bitrate export, the export sheet's: grainy pictures come
