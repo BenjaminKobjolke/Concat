@@ -109,16 +109,26 @@ internal data class EditorPreviewActions(
     val onSelectClip: (String?) -> Unit,
 )
 
+internal data class EditorPreviewState(
+    val view: ProjectView?,
+    val previewHeight: Dp,
+    val ui: EditorUi,
+    val model: EditorViewModel,
+    val mainTrackId: String?,
+    val inlineEdit: String?,
+)
+
 @Composable
 internal fun EditorPreviewArea(
-    view: ProjectView?,
-    previewHeight: Dp,
-    ui: EditorUi,
-    model: EditorViewModel,
-    mainTrackId: String?,
-    inlineEdit: String?,
+    state: EditorPreviewState,
     actions: EditorPreviewActions,
 ) {
+        val view = state.view
+        val previewHeight = state.previewHeight
+        val ui = state.ui
+        val model = state.model
+        val mainTrackId = state.mainTrackId
+        val inlineEdit = state.inlineEdit
         BoxWithConstraints(
             Modifier.fillMaxWidth().height(previewHeight).padding(vertical = 6.dp),
             contentAlignment = Alignment.Center,
@@ -135,12 +145,14 @@ internal fun EditorPreviewArea(
                         position = ui.position,
                         selected = if (inlineEdit != null) null else ui.selected,
                         mainTrackId = mainTrackId,
-                        onSelect = actions.onSelectClip,
-                        onCommit = { id, p -> model.setTransform(id, p.scale, p.offsetX, p.offsetY, p.rotation) },
-                        onEditText = {
-                            model.pause()
-                            actions.onInlineEdit(it)
-                        },
+                        actions = PreviewOverlayActions(
+                            onSelect = actions.onSelectClip,
+                            onCommit = { id, p -> model.setTransform(id, p.scale, p.offsetX, p.offsetY, p.rotation) },
+                            onEditText = {
+                                model.pause()
+                                actions.onInlineEdit(it)
+                            },
+                        ),
                     )
                     inlineEdit?.let { id ->
                         view.clip(id)?.let { clip ->

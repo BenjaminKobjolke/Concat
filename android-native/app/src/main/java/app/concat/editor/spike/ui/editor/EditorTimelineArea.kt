@@ -3,9 +3,11 @@
 
 package app.concat.editor.spike.ui.editor
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import app.concat.editor.spike.api.ProjectView
@@ -38,18 +40,13 @@ internal fun EditorTimelineArea(state: EditorTimelineState, actions: EditorTimel
         val room = maxHeight
         state.view?.let { view ->
             Timeline(
-                view = view,
-                projectPath = state.projectPath,
-                media = state.media,
-                position = state.position,
-                selected = state.selected,
-                onScrub = actions.onScrub,
-                onSelect = actions.onSelect,
-                onMove = actions.onMove,
-                onTrim = actions.onTrim,
-                onAddMedia = actions.onAddMedia,
-                onTransition = actions.onTransition,
-                onMuteTrack = actions.onMuteTrack,
+                presentation = TimelinePresentation(
+                    view, state.projectPath, state.media, state.position, state.selected,
+                ),
+                actions = TimelineCallbacks(
+                    actions.onScrub, actions.onSelect, actions.onMove, actions.onTrim,
+                    actions.onAddMedia, actions.onTransition, actions.onMuteTrack,
+                ),
             )
         }
         PanelSlot(visible = state.panel != null, modifier = Modifier.align(Alignment.BottomCenter)) {

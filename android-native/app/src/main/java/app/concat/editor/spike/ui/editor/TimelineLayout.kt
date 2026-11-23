@@ -192,7 +192,7 @@ internal fun autoScroll(layout: LaneLayout, height: Float, density: androidx.com
 }
 
 /** A tappable mark on the timeline that is not a clip. */
-private sealed interface TimelineButton {
+internal sealed interface TimelineButton {
     data object Add : TimelineButton
     data object Cover : TimelineButton
     data class Cut(val nextClipId: String) : TimelineButton
@@ -233,8 +233,8 @@ internal fun buttonAt(
     null
 }
 
-private val CUT_BUTTON = 22.dp
-private val PLUS = 40.dp
+internal val CUT_BUTTON = 22.dp
+internal val PLUS = 40.dp
 
 /**
  * How far an edge may go, in signed seconds: never shorter than a frame
