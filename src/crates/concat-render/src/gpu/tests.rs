@@ -993,20 +993,26 @@ fn every_shader_package_draws_a_4k_frame_within_its_budget() {
         layer.effects = vec![pass];
         plan(WIDTH, HEIGHT, vec![layer])
     };
-    // The device's time for one drawing of `plan`, already drawn once; or
-    // why it did not draw.
+    // The median device time for a warmed drawing of `plan`; or why it did
+    // not draw. Three samples keep one slow queue submission from failing
+    // the budget on a single-frame timing spike.
     let timed = |gpu: &mut WgpuCompositor, plan: &FramePlan| {
         if gpu.render_texture(plan).is_none() || !gpu.finish() {
             return Err("it did not draw".to_owned());
         }
-        let began = std::time::Instant::now();
-        if gpu.render_texture(plan).is_none() || !gpu.finish() {
-            return Err(format!(
-                "the device did not finish it: {:?}",
-                gpu.post_mortem()
-            ));
+        let mut samples = Vec::with_capacity(3);
+        for _ in 0..3 {
+            let began = std::time::Instant::now();
+            if gpu.render_texture(plan).is_none() || !gpu.finish() {
+                return Err(format!(
+                    "the device did not finish it: {:?}",
+                    gpu.post_mortem()
+                ));
+            }
+            samples.push(began.elapsed());
         }
-        Ok(began.elapsed())
+        samples.sort_unstable();
+        Ok(samples[1])
     };
     let canary = frame_of(package("test.canary", INVERT, "", &[], 1.0));
     let floor = timed(&mut gpu, &canary).expect("an invert draws");
