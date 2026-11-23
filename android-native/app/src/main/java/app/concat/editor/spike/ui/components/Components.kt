@@ -57,6 +57,8 @@ fun ConcatIcon(icon: ImageVector, modifier: Modifier = Modifier, tint: Color = C
 }
 
 /** A round icon button: 40dp to touch, the glyph at 22. */
+data class IconActionDimensions(val icon: Dp = 22.dp, val box: Dp = 40.dp)
+
 @Composable
 fun IconAction(
     icon: ImageVector,
@@ -65,17 +67,16 @@ fun IconAction(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     tint: Color = ConcatColors.fg,
-    size: Dp = 22.dp,
-    box: Dp = 40.dp,
+    dimensions: IconActionDimensions = IconActionDimensions(),
 ) {
     Box(
         modifier
-            .size(box)
+            .size(dimensions.box)
             .clip(CircleShape)
             .clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick)
             .alpha(if (enabled) 1f else 0.35f),
         contentAlignment = Alignment.Center,
-    ) { ConcatIcon(icon, tint = tint, size = size, label = label) }
+    ) { ConcatIcon(icon, tint = tint, size = dimensions.icon, label = label) }
 }
 
 /** The primary action: solid lime, dark ink. */
@@ -157,7 +158,6 @@ fun ValueSlider(
     describe: (Float) -> String,
     onChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    steps: Int = 0,
     onDone: () -> Unit = {},
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -170,7 +170,7 @@ fun ValueSlider(
             onValueChange = onChange,
             onValueChangeFinished = onDone,
             valueRange = range,
-            steps = steps,
+            steps = 0,
             colors = SliderDefaults.colors(
                 thumbColor = ConcatColors.fgHot,
                 activeTrackColor = ConcatColors.accent,
@@ -188,19 +188,23 @@ fun ValueSlider(
  * above the toolbar, so the preview stays in sight. A title row with a
  * close mark and (when it confirms) a check; the body scrolls when tall.
  */
+data class ToolPanelLayout(
+    val modifier: Modifier = Modifier,
+    val scroll: Boolean = true,
+    val padding: PaddingValues = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.xs),
+)
+
 @Composable
 fun ToolPanel(
     title: String,
     onClose: () -> Unit,
-    modifier: Modifier = Modifier,
     onConfirm: (() -> Unit)? = null,
     actions: @Composable () -> Unit = {},
-    scroll: Boolean = true,
-    padding: PaddingValues = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.xs),
+    layout: ToolPanelLayout = ToolPanelLayout(),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
-        modifier
+        layout.modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(topStart = Radii.xl, topEnd = Radii.xl))
             .background(ConcatColors.launchPanel)
@@ -214,7 +218,7 @@ fun ToolPanel(
             Modifier.fillMaxWidth().height(44.dp).padding(horizontal = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconAction(ConcatIcons.Close, "Close", onClose, size = 20.dp)
+            IconAction(ConcatIcons.Close, "Close", onClose, dimensions = IconActionDimensions(icon = 20.dp))
             Text(
                 title,
                 style = ConcatType.heading,
@@ -234,9 +238,9 @@ fun ToolPanel(
         }
         // Weighted, so a body taller than the room left scrolls (or clips)
         // inside it rather than pushing the header out.
-        val body = Modifier.weight(1f, fill = false).fillMaxWidth().padding(padding)
+        val body = Modifier.weight(1f, fill = false).fillMaxWidth().padding(layout.padding)
         Column(
-            if (scroll) body.verticalScroll(rememberScrollState()) else body,
+            if (layout.scroll) body.verticalScroll(rememberScrollState()) else body,
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             content()

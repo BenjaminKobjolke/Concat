@@ -55,6 +55,7 @@ import app.concat.editor.spike.ui.components.ConcatIcon
 import app.concat.editor.spike.ui.components.GhostButton
 import app.concat.editor.spike.ui.components.PanelLabel
 import app.concat.editor.spike.ui.components.ToolPanel
+import app.concat.editor.spike.ui.components.ToolPanelLayout
 import app.concat.editor.spike.ui.components.ValueSlider
 import app.concat.editor.spike.ui.icons.ConcatIcons
 import app.concat.editor.spike.ui.theme.ConcatColors
@@ -253,7 +254,7 @@ fun PackagePanel(
         onClose = onClose,
         onConfirm = onClose,
         actions = { GhostButton("All", onMore, icon = ConcatIcons.Search, height = 32.dp, modifier = Modifier.padding(end = Spacing.sm)) },
-        padding = androidx.compose.foundation.layout.PaddingValues(vertical = Spacing.xs),
+        layout = ToolPanelLayout(padding = androidx.compose.foundation.layout.PaddingValues(vertical = Spacing.xs)),
     ) {
         when {
             !state.loaded -> PanelLabel("Loading...", Modifier.padding(horizontal = Spacing.lg))

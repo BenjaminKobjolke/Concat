@@ -49,6 +49,7 @@ import androidx.lifecycle.viewModelScope
 import app.concat.editor.spike.concat
 import app.concat.editor.spike.ui.Palette
 import app.concat.editor.spike.ui.components.ToolPanel
+import app.concat.editor.spike.ui.components.ToolPanelLayout
 import app.concat.editor.spike.ui.theme.ConcatColors
 import java.io.File
 import kotlinx.coroutines.Job
@@ -188,7 +189,7 @@ fun VoiceoverSheet(voiceover: VoiceoverViewModel, editor: EditorViewModel, onDis
         onDismiss()
     }
 
-    ToolPanel("Voiceover", onClose = close, scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+    ToolPanel("Voiceover", onClose = close, layout = ToolPanelLayout(scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp))) {
         Column(
             Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),

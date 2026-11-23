@@ -44,6 +44,7 @@ import app.concat.editor.spike.api.wasCancelled
 import app.concat.editor.spike.concat
 import app.concat.editor.spike.ui.Palette
 import app.concat.editor.spike.ui.components.ToolPanel
+import app.concat.editor.spike.ui.components.ToolPanelLayout
 import app.concat.editor.spike.ui.theme.ConcatColors
 import app.concat.editor.spike.ui.timecode
 import kotlinx.coroutines.CancellationException
@@ -193,7 +194,7 @@ fun CaptionsSheet(captions: CaptionsViewModel, editor: EditorViewModel, preferCl
         }
     }
 
-    ToolPanel("Auto captions", onClose = onDismiss, scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+    ToolPanel("Auto captions", onClose = onDismiss, layout = ToolPanelLayout(scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp))) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).imePadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),

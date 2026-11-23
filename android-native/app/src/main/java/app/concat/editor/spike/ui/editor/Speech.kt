@@ -41,6 +41,7 @@ import app.concat.editor.spike.api.wasCancelled
 import app.concat.editor.spike.concat
 import app.concat.editor.spike.ui.Palette
 import app.concat.editor.spike.ui.components.ToolPanel
+import app.concat.editor.spike.ui.components.ToolPanelLayout
 import app.concat.editor.spike.ui.theme.ConcatColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -163,7 +164,7 @@ fun SpeechSheet(speech: SpeechViewModel, editor: EditorViewModel, onDismiss: () 
         onDismiss()
     }
 
-    ToolPanel("Text to speech", onClose = close, scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+    ToolPanel("Text to speech", onClose = close, layout = ToolPanelLayout(scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp))) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).imePadding().heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
