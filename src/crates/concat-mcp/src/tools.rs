@@ -257,7 +257,7 @@ pub fn catalogue() -> Vec<Tool> {
         method(
             "edit_apply",
             "Apply an edit",
-            "Applies any one edit command to an open project, as one undoable step. `command` is an object tagged by `op` - every edit the window can make is one, with the same limits and refusals; the typed tools below are the common ones. `{\"op\": \"batch\", \"commands\": [...]}` applies several commands as one atomic, undoable step: all land or none does, and `createdId` is the last id minted inside. A refusal comes back as the sentence the window would show, with nothing changed. Returns the project summary; a command that creates something puts its id in `createdId`.",
+            "Applies one edit to an open project as one undoable step. `command` is tagged by `op` and uses the window's limits and refusals. Typed tools below cover common edits. `{\"op\": \"batch\", \"commands\": [...]}` applies commands atomically: all succeed or none do. `createdId` is the last id minted. Refusals leave the project unchanged. Returns the project summary.",
             "edit.apply",
             Summary,
         ),
