@@ -176,7 +176,7 @@ private fun EditorScreenDialogs(state: EditorScreenContentContext, view: Project
     var exporting by state.transient.exporting
     var renaming by state.transient.renaming
     catalogueShelf?.let { shelf ->
-        CatalogueSheet(shelf, catalogue, model, catalogueAdjust, onDismiss = { catalogueShelf = null })
+        CatalogueSheet(CatalogueSheetOptions(shelf, catalogueAdjust), catalogue, model, onDismiss = { catalogueShelf = null })
     }
     if (exporting) ExportSheet(model, onDismiss = { exporting = false })
     if (renaming && view != null) {

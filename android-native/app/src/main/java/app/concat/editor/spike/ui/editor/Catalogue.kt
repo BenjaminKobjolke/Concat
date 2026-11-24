@@ -31,7 +31,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -61,10 +60,8 @@ import app.concat.editor.spike.api.AppliedEffect
 import app.concat.editor.spike.api.Clip
 import app.concat.editor.spike.api.ClipKind
 import app.concat.editor.spike.api.PackageInfo
-import app.concat.editor.spike.api.ParamInfo
 import app.concat.editor.spike.concat
 import app.concat.editor.spike.ui.Palette
-import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -100,6 +97,8 @@ class CatalogueViewModel(application: Application) : AndroidViewModel(applicatio
 /** Which packages a sheet shows, and what it is called. */
 enum class Shelf(val title: String) { Effects("Effects"), Filters("Filters"), Transitions("Transitions") }
 
+data class CatalogueSheetOptions(val shelf: Shelf, val adjustFirst: Boolean)
+
 /** The package kinds a shelf offers for [clip]. */
 fun Shelf.kinds(clip: Clip?): List<String> = when (this) {
     Shelf.Effects -> when (clip?.kind) {
@@ -119,22 +118,16 @@ fun Shelf.kinds(clip: Clip?): List<String> = when (this) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CatalogueSheet(shelf: Shelf, catalogue: CatalogueViewModel, editor: EditorViewModel, adjustFirst: Boolean, onDismiss: () -> Unit) {
+fun CatalogueSheet(options: CatalogueSheetOptions, catalogue: CatalogueViewModel, editor: EditorViewModel, onDismiss: () -> Unit) {
+    val shelf = options.shelf
     val state by catalogue.ui.collectAsStateWithLifecycle()
     val editorUi by editor.ui.collectAsStateWithLifecycle()
     val clip = editorUi.view?.clip(editorUi.selected)
     val kinds = shelf.kinds(clip)
-    var tab by remember { mutableStateOf(if (adjustFirst) 1 else 0) }
+    var tab by remember { mutableStateOf(if (options.adjustFirst) 1 else 0) }
     var query by remember { mutableStateOf("") }
     var category by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { catalogue.load() }
-
-    val offered = state.packages.filter { it.kind in kinds }
-    val shown = offered.filter { pkg ->
-        (category == null || pkg.category == category) &&
-            (query.isBlank() || listOf(pkg.name, pkg.category, pkg.description).any { it.contains(query.trim(), ignoreCase = true) })
-    }
-    val categories = offered.map { it.category }.distinct().sorted()
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -144,43 +137,67 @@ fun CatalogueSheet(shelf: Shelf, catalogue: CatalogueViewModel, editor: EditorVi
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Adjust") }, enabled = clip != null)
             }
             if (tab == 0) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    leadingIcon = { Icon(ConcatIcons.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                    placeholder = { Text("Search ${shelf.title.lowercase()}") },
-                )
-                ChoiceChips(listOf<String?>(null) + categories, category, { it ?: "All" }) { category = it }
-                when {
-                    !state.loaded -> SectionLabel("Loading...")
-                    state.error != null -> SectionLabel(state.error ?: "")
-                    shown.isEmpty() -> SectionLabel("Nothing matches.")
-                }
-                if (shelf != Shelf.Transitions && clip == null) SectionLabel("Select a clip to apply one.")
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(92.dp),
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    for ((group, packages) in shown.groupBy { it.category }.toSortedMap()) {
-                        item(span = { GridItemSpan(maxLineSpan) }, key = "header-$group") {
-                            Text(group, color = Palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
-                        }
-                        items(packages, key = { it.id }) { pkg ->
-                            PackageTile(pkg, enabled = clip != null || shelf == Shelf.Transitions) {
-                                editor.applyPackage(pkg.kind, pkg.id, pkg.name)
-                                if (pkg.params.any { it.sliderable }) tab = 1
-                            }
-                        }
-                    }
-                }
+                CatalogueBrowse(
+                    CatalogueBrowseContext(shelf, state, clip, editor),
+                    CatalogueBrowseFilters(query, { query = it }, category, { category = it }),
+                ) { tab = 1 }
             } else {
                 AdjustChain(clip, kinds, catalogue, editor)
             }
             Spacer(Modifier.navigationBarsPadding().padding(bottom = 8.dp))
+        }
+    }
+}
+
+private data class CatalogueBrowseFilters(val query: String, val onQueryChange: (String) -> Unit, val category: String?, val onCategoryChange: (String?) -> Unit)
+
+private data class CatalogueBrowseContext(val shelf: Shelf, val state: CatalogueUi, val clip: Clip?, val editor: EditorViewModel)
+
+@Composable
+private fun CatalogueBrowse(
+    context: CatalogueBrowseContext,
+    filters: CatalogueBrowseFilters,
+    onPackageApplied: () -> Unit,
+) {
+    val (shelf, state, clip, editor) = context
+    val offered = state.packages.filter { it.kind in shelf.kinds(clip) }
+    val shown = offered.filter { pkg ->
+        (filters.category == null || pkg.category == filters.category) &&
+            (filters.query.isBlank() || listOf(pkg.name, pkg.category, pkg.description).any { it.contains(filters.query.trim(), ignoreCase = true) })
+    }
+    val categories = offered.map { it.category }.distinct().sorted()
+
+    OutlinedTextField(
+        value = filters.query,
+        onValueChange = filters.onQueryChange,
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        leadingIcon = { Icon(ConcatIcons.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+        placeholder = { Text("Search ${shelf.title.lowercase()}") },
+    )
+    ChoiceChips(listOf<String?>(null) + categories, filters.category, { it ?: "All" }, filters.onCategoryChange)
+    when {
+        !state.loaded -> SectionLabel("Loading...")
+        state.error != null -> SectionLabel(state.error ?: "")
+        shown.isEmpty() -> SectionLabel("Nothing matches.")
+    }
+    if (shelf != Shelf.Transitions && clip == null) SectionLabel("Select a clip to apply one.")
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(92.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        for ((group, packages) in shown.groupBy { it.category }.toSortedMap()) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "header-$group") {
+                Text(group, color = Palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
+            }
+            items(packages, key = { it.id }) { pkg ->
+                PackageTile(pkg, enabled = clip != null || shelf == Shelf.Transitions) {
+                    editor.applyPackage(pkg.kind, pkg.id, pkg.name)
+                    if (pkg.params.any { it.sliderable }) onPackageApplied()
+                }
+            }
         }
     }
 }
@@ -230,13 +247,16 @@ private fun AdjustChain(clip: Clip?, kinds: List<String>, catalogue: CatalogueVi
     }
     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items(links, key = { "${clip.id}/${it.first}/${it.second}/${it.third.id}" }) { (field, index, link) ->
-            LinkCard(clip, field, index, link, catalogue.find(link.id), editor, removable = clip.kind != ClipKind.Transition)
+            LinkCard(EffectLinkCard(clip, field, index, link, catalogue.find(link.id), clip.kind != ClipKind.Transition), editor)
         }
     }
 }
 
+private data class EffectLinkCard(val clip: Clip, val field: String, val index: Int, val link: AppliedEffect, val pkg: PackageInfo?, val removable: Boolean)
+
 @Composable
-private fun LinkCard(clip: Clip, field: String, index: Int, link: AppliedEffect, pkg: PackageInfo?, editor: EditorViewModel, removable: Boolean) {
+private fun LinkCard(card: EffectLinkCard, editor: EditorViewModel) {
+    val (clip, field, index, link, pkg, removable) = card
     // The sheet's own copy of the knobs, so a drag is not pulled back by replies still on their way.
     val values = remember(clip.id, field, index, link.id) {
         mutableStateMapOf<String, Double>().apply { putAll(link.params) }
@@ -268,44 +288,6 @@ private fun LinkCard(clip: Clip, field: String, index: Int, link: AppliedEffect,
                 values[param.key] = it
                 send()
             }
-        }
-    }
-}
-
-/** One knob: a slider for a number, a switch for a flag, chips for a choice. */
-@Composable
-private fun ParamControl(param: ParamInfo, value: Double, onChange: (Double) -> Unit) {
-    when (param.type) {
-        "bool" -> Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(param.label, color = Palette.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
-            Switch(checked = value != 0.0, onCheckedChange = { onChange(if (it) 1.0 else 0.0) })
-        }
-        "enum" -> Column {
-            SectionLabel(param.label)
-            val options = param.values.indices.toList()
-            val current = param.values.indexOfFirst { it == value }.coerceAtLeast(0)
-            ChoiceChips(options, current, { param.labels.getOrNull(it) ?: param.values[it].toString() }) { onChange(param.values[it]) }
-        }
-        else -> Column {
-            val low = param.min.toFloat()
-            val high = param.max.toFloat().coerceAtLeast(low + 1e-3f)
-            val step = if (param.type == "int") param.step.coerceAtLeast(1.0) else param.step
-            val steps = if (step > 0) (((high - low) / step).roundToInt() - 1).coerceIn(0, 200) else 0
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(param.label, color = Palette.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                val shown = if (param.type == "int" || step >= 1) "%.0f".format(value) else "%.2f".format(value)
-                Text("$shown${param.unit}", color = Palette.accent, fontSize = 12.sp)
-            }
-            Slider(
-                value = value.toFloat().coerceIn(low, high),
-                onValueChange = { raw ->
-                    var next = raw.toDouble()
-                    if (step > 0) next = param.min + ((next - param.min) / step).roundToInt() * step
-                    onChange(next.coerceIn(param.min, param.max))
-                },
-                valueRange = low..high,
-                steps = steps,
-            )
         }
     }
 }
