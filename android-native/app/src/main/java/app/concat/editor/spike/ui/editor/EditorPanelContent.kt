@@ -61,9 +61,7 @@ internal fun EditorPanelContent(panel: Panel?, context: EditorPanelContext) {
         Panel.Cover -> CoverPanel(
             context.cover,
             named = context.coverNamed,
-            onFrame = model::setCoverFrame,
-            onPicture = context.actions.onPickCover,
-            onReset = model::resetCover,
+            actions = CoverActions(model::setCoverFrame, context.actions.onPickCover, model::resetCover),
             onClose = close,
         )
         Panel.Captions -> CaptionsSheet(context.captions, model, preferClip = selected?.id, onDismiss = close)

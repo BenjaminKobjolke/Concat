@@ -4,6 +4,7 @@
 package app.concat.editor.spike.ui.editor
 
 import android.app.Application
+import app.concat.editor.spike.api.SpeechRequest
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -112,7 +113,7 @@ class SpeechViewModel(application: Application, private val path: String) : Andr
         tracker.expect()
         viewModelScope.launch {
             try {
-                tracker.start(api.speechSpeak(path, now.text.trim(), model, voice, now.speed.toDouble()))
+                tracker.start(api.speechSpeak(SpeechRequest(path, now.text.trim(), model, voice, now.speed.toDouble())))
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

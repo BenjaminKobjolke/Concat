@@ -173,9 +173,7 @@ fun AnimationPanel(clip: Clip, onApply: (JSONObject) -> Unit, onClose: () -> Uni
         val out = JSONObject()
         for (each in Phase.entries) {
             val kind = kinds[each] ?: continue
-            val move = JSONObject().put("kind", kind).put("seconds", seconds.getValue(each).toDouble())
-            if (each == Phase.Loop) move.put("amount", motion?.optJSONObject("loop").number("amount", 1.0))
-            out.put(each.field, move)
+            out.put(each.field, motionForPhase(each, kind, seconds.getValue(each), motion))
         }
         onApply(JSONObject().put("motion", if (out.length() == 0) JSONObject.NULL else out))
     }
@@ -207,4 +205,10 @@ fun AnimationPanel(clip: Clip, onApply: (JSONObject) -> Unit, onClose: () -> Uni
             )
         }
     }
+}
+
+private fun motionForPhase(phase: Phase, kind: String, seconds: Float, motion: JSONObject?): JSONObject {
+    val move = JSONObject().put("kind", kind).put("seconds", seconds.toDouble())
+    if (phase == Phase.Loop) move.put("amount", motion?.optJSONObject("loop").number("amount", 1.0))
+    return move
 }

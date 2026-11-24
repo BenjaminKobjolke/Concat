@@ -16,6 +16,15 @@ import kotlinx.coroutines.flow.SharedFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
+private data class FakeModelDefinition(
+    val id: String,
+    val label: String,
+    val blurb: String,
+    val family: String,
+    val englishOnly: Boolean,
+    val sizeBytes: Long,
+)
+
 internal fun FakeEngineBridge.setVideo(session: Session, video: JSONObject): String? {
         val width = video.optInt("width")
         val height = video.optInt("height")
@@ -63,18 +72,18 @@ internal fun FakeEngineBridge.setDownloaded(id: String, downloaded: Boolean) {
 
 internal fun FakeEngineBridge.modelsList(): JSONObject {
         val have = downloadedModels()
-        fun model(id: String, label: String, blurb: String, family: String, englishOnly: Boolean, size: Long) =
-            JSONObject().put("id", id).put("label", label).put("blurb", blurb).put("family", family)
-                .put("englishOnly", englishOnly).put("sizeBytes", size).put("downloaded", id in have)
+        fun model(definition: FakeModelDefinition) =
+            JSONObject().put("id", definition.id).put("label", definition.label).put("blurb", definition.blurb).put("family", definition.family)
+                .put("englishOnly", definition.englishOnly).put("sizeBytes", definition.sizeBytes).put("downloaded", definition.id in have)
         return JSONObject()
             .put("transcribers", JSONArray()
-                .put(model("tiny.en", "Tiny (English)", "Fastest; misses more words.", "", true, 75_000_000))
-                .put(model("base", "Base", "Any language; a good balance.", "", false, 142_000_000))
-                .put(model("small", "Small", "Hears best; slowest on a phone.", "", false, 466_000_000)))
+                .put(model(FakeModelDefinition("tiny.en", "Tiny (English)", "Fastest; misses more words.", "", true, 75_000_000)))
+                .put(model(FakeModelDefinition("base", "Base", "Any language; a good balance.", "", false, 142_000_000)))
+                .put(model(FakeModelDefinition("small", "Small", "Hears best; slowest on a phone.", "", false, 466_000_000))))
             .put("speech", JSONArray()
-                .put(model("system", "Phone voice", "The voice the phone has; nothing to download.", "system", false, 0)
+                .put(model(FakeModelDefinition("system", "Phone voice", "The voice the phone has; nothing to download.", "system", false, 0))
                     .put("downloaded", true))
-                .put(model("chatterbox", "Chatterbox", "Natural voices; a large download.", "chatterbox", false, 520_000_000)))
+                .put(model(FakeModelDefinition("chatterbox", "Chatterbox", "Natural voices; a large download.", "chatterbox", false, 520_000_000))))
             .put("voices", JSONArray()
                 .put(JSONObject().put("id", 0).put("name", "Default").put("family", "system"))
                 .put(JSONObject().put("id", 1).put("name", "Ava").put("family", "chatterbox"))

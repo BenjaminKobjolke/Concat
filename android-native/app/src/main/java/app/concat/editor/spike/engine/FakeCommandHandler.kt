@@ -117,7 +117,7 @@ private fun Session.clipList() = clips.objectsList()
                 first
             }
             "moveClips" -> {
-                moveClips(session, command)
+                moveFakeClips(session, command)
             }
             "addTrack" -> addTrack(session, top = !command.optBoolean("bottom"))
             "addTransitionClip" -> {
@@ -173,7 +173,11 @@ private fun Session.clipList() = clips.objectsList()
                 }
                 null
             }
-            "updateClip" -> updateClip(session, command)
+            "updateClip" -> {
+                val clip = clip(command.getString("clipId")) ?: return null
+                updateClipPatch(clip, command.getJSONObject("patch"))
+                null
+            }
             "setClipTransform" -> setClipTransform(session, command)
             "setClipKey" -> {
                 val clip = clip(command.getString("clipId")) ?: return null
@@ -229,70 +233,6 @@ private fun Session.clipList() = clips.objectsList()
         var last: String? = null
         for (inner in command.getJSONArray("commands").objectsList()) last = applyCommand(session, inner) ?: last
         return last
-    }
-
-    private fun updateClip(session: Session, command: JSONObject): String? = with(session) {
-        val clip = clip(command.getString("clipId")) ?: return null
-        val patch = command.getJSONObject("patch")
-        if (patch.has("volume")) clip.put("volume", max(0.0, patch.getDouble("volume")))
-        if (patch.has("name")) clip.put("name", patch.getString("name"))
-        if (patch.has("opacity")) clip.put("opacity", patch.getDouble("opacity").coerceIn(0.0, 1.0))
-        updateClipFlags(clip, patch)
-        updateClipEffects(clip, patch)
-        updateClipTransition(clip, patch)
-        updateClipText(clip, patch)
-        null
-    }
-
-    private fun updateClipFlags(clip: JSONObject, patch: JSONObject) {
-        for (flag in listOf("muted", "flipH", "flipV")) if (patch.has(flag)) clip.put(flag, patch.getBoolean(flag))
-        for (fade in listOf("fadeIn", "fadeOut")) if (patch.has(fade)) clip.put(fade, max(0.0, patch.getDouble(fade)))
-    }
-
-    private fun updateClipEffects(clip: JSONObject, patch: JSONObject) {
-        for (chain in listOf("videoEffects", "filters")) {
-            if (patch.has(chain)) clip.put(chain, patch.optJSONArray(chain) ?: JSONArray())
-        }
-    }
-
-    private fun updateClipTransition(clip: JSONObject, patch: JSONObject) {
-        if (!patch.has("transitionIn")) return
-        val transition = patch.optJSONObject("transitionIn")
-        if (transition == null) clip.remove("transitionIn") else clip.put("transitionIn", transition)
-    }
-
-    private fun updateClipText(clip: JSONObject, patch: JSONObject) {
-        if (!patch.has("text")) return
-        val text = patch.optJSONObject("text")
-        if (text == null) clip.remove("text") else {
-            clip.put("text", text).put("name", text.optString("content").lineSequence().firstOrNull().orEmpty())
-        }
-    }
-
-    private fun moveClips(session: Session, command: JSONObject): String? = with(session) {
-        val known = tracks.objectsList().map { it.getString("id") }.toSet()
-        val moves = command.getJSONArray("moves").objectsList()
-        val moving = moves.map { it.getString("clipId") }.toSet()
-        for (move in moves) {
-            val clip = clip(move.getString("clipId")) ?: continue
-            val track = move.optString("trackId").takeIf { it in known } ?: clip.getString("trackId")
-            val start = nearestFreeStart(clip, move.getDouble("start"), track, moving)
-            clip.put("start", start).put("trackId", track)
-        }
-        null
-    }
-
-    private fun Session.nearestFreeStart(clip: JSONObject, wanted: Double, track: String, moving: Set<String>): Double {
-        var start = max(0.0, wanted)
-        val length = clip.getDouble("duration")
-        // Onto another clip is never where a move lands: the nearest gap that holds it.
-        val others = clipList().filter { it.getString("trackId") == track && it.getString("id") !in moving }
-            .map { it.getDouble("start") to it.end() }.sortedBy { it.first }
-        fun fits(at: Double) = others.none { (s, e) -> s < at + length - 1e-6 && e > at + 1e-6 }
-        if (fits(start)) return start
-        val candidates = listOf(0.0) + others.map { it.second } + others.map { it.first - length }
-        start = candidates.filter { it >= 0 && fits(it) }.minByOrNull { kotlin.math.abs(it - start) } ?: clip.getDouble("start")
-        return start
     }
 
     private fun setClipTransform(session: Session, command: JSONObject): String? = with(session) {

@@ -6,7 +6,10 @@ package app.concat.editor.spike.ui.editor
 import app.concat.editor.spike.api.AppliedEffect
 import app.concat.editor.spike.api.ClipKind
 import app.concat.editor.spike.api.Commands
+import app.concat.editor.spike.api.ClipTransform
 import app.concat.editor.spike.api.ProjectView
+import app.concat.editor.spike.api.ProjectVideo
+import app.concat.editor.spike.api.TransitionClipRequest
 import java.io.File
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.update
@@ -65,7 +68,7 @@ fun EditorViewModel.applyPackage(kind: String, packageId: String, name: String) 
             val at = clip?.start ?: _ui.value.position
             val start = (at - 0.5).coerceAtLeast(0.0)
             change("Transition") {
-                val view = apply(Commands.addTransitionClip(packageId, name, start, duration = 1.0))
+                val view = apply(Commands.addTransitionClip(TransitionClipRequest(packageId, name, start, duration = 1.0)))
                 view.createdId?.let { id -> _ui.update { it.copy(selected = id) } }
                 view
             }
@@ -185,7 +188,7 @@ fun EditorViewModel.flip() {
      * fractions of the frame, clockwise degrees.
      */
 fun EditorViewModel.setTransform(clipId: String, scale: Double, offsetX: Double, offsetY: Double, rotation: Double) {
-        change("Move") { apply(Commands.setClipTransform(clipId, scale, offsetX, offsetY, rotation)) }
+        change("Move") { apply(Commands.setClipTransform(clipId, ClipTransform(scale, offsetX, offsetY, rotation))) }
     }
 
 fun EditorViewModel.resetTransform() {
@@ -221,7 +224,7 @@ fun EditorViewModel.toggleKeyframe() {
 fun EditorViewModel.setAspect(width: Int, height: Int) {
         val view = _ui.value.view ?: return
         if (view.width == width && view.height == height) return
-        change("Aspect") { api.setVideo(path, width, height, view.rateNum, view.rateDen) }
+        change("Aspect") { api.setVideo(path, ProjectVideo(width, height, view.rateNum, view.rateDen)) }
     }
 
 fun EditorViewModel.setBackground(background: JSONObject) {

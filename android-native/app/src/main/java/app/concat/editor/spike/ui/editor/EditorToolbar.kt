@@ -210,25 +210,53 @@ private fun addSelectedClipStateTools(
     val picture = selected.kind == ClipKind.Video || selected.kind == ClipKind.Image
     val moved = selected.scale != 1.0 || selected.offsetX != 0.0 || selected.offsetY != 0.0 || selected.rotation != 0.0
     with(tools) {
-        if (picture) add(Tool(ConcatIcons.FlipH, "Flip", active = selected.flipH, onClick = actions.model::flip))
-        if (selected.placeable) add(Tool(ConcatIcons.Wand, "Animation", active = panel == Panel.Animation, onClick = open(Panel.Animation)))
-        if (picture) add(Tool(ConcatIcons.Frame, "Crop", active = panel == Panel.Crop, onClick = open(Panel.Crop)))
-        if (picture) add(Tool(ConcatIcons.MaskCircle, "Mask", active = panel == Panel.Mask, onClick = open(Panel.Mask)))
-        if (picture) add(Tool(ConcatIcons.Pause, "Freeze", onClick = actions.model::freeze))
-        if (selected.kind == ClipKind.Video || selected.kind == ClipKind.Audio) {
-            val running = actions.reversing
-            when {
-                running?.first == selected.id -> add(Tool(ConcatIcons.Reverse, "Reversing ${(running.second * 100).toInt()}%", active = true, onClick = actions.model::cancelReverse))
-                else -> add(Tool(ConcatIcons.Reverse, "Reverse", enabled = running == null, onClick = actions.model::reverse))
-            }
-        }
-        if (picture || selected.kind == ClipKind.Audio) add(Tool(ConcatIcons.Import, "Replace") { actions.replace(selected.kind == ClipKind.Audio) })
-        if (selected.kind == ClipKind.Video) {
-            add(Tool(if (selected.muted) ConcatIcons.VolumeOff else ConcatIcons.Volume, if (selected.muted) "Unmute" else "Mute", onClick = actions.model::toggleMute))
-        }
-        if (selected.placeable) add(Tool(ConcatIcons.Reset, "Reset", enabled = moved, onClick = actions.model::resetTransform))
-        if (selected.kind.hasSound) add(Tool(ConcatIcons.Rows, "Captions", active = panel == Panel.Captions, onClick = open(Panel.Captions)))
-        if (picture && selected.trackId == mainTrackId) add(Tool(ConcatIcons.Transition, "Transition", active = panel == Panel.Transitions, onClick = open(Panel.Transitions)))
+        addSelectedClipPictureTools(selected, picture, panel, actions, open)
+        addSelectedClipReverseTool(selected, actions)
+        addSelectedClipStateActions(selected, mainTrackId, panel, actions, open, moved, picture)
     }
+}
+
+private fun MutableList<Tool>.addSelectedClipPictureTools(
+    selected: Clip,
+    picture: Boolean,
+    panel: Panel?,
+    actions: ToolActions,
+    open: (Panel) -> () -> Unit,
+) {
+    if (picture) add(Tool(ConcatIcons.FlipH, "Flip", active = selected.flipH, onClick = actions.model::flip))
+    if (selected.placeable) add(Tool(ConcatIcons.Wand, "Animation", active = panel == Panel.Animation, onClick = open(Panel.Animation)))
+    if (picture) add(Tool(ConcatIcons.Frame, "Crop", active = panel == Panel.Crop, onClick = open(Panel.Crop)))
+    if (picture) add(Tool(ConcatIcons.MaskCircle, "Mask", active = panel == Panel.Mask, onClick = open(Panel.Mask)))
+    if (picture) add(Tool(ConcatIcons.Pause, "Freeze", onClick = actions.model::freeze))
+}
+
+private fun MutableList<Tool>.addSelectedClipReverseTool(selected: Clip, actions: ToolActions) {
+    if (selected.kind != ClipKind.Video && selected.kind != ClipKind.Audio) return
+    val running = actions.reversing
+    add(
+        if (running?.first == selected.id) {
+            Tool(ConcatIcons.Reverse, "Reversing ${(running.second * 100).toInt()}%", active = true, onClick = actions.model::cancelReverse)
+        } else {
+            Tool(ConcatIcons.Reverse, "Reverse", enabled = running == null, onClick = actions.model::reverse)
+        },
+    )
+}
+
+private fun MutableList<Tool>.addSelectedClipStateActions(
+    selected: Clip,
+    mainTrackId: String?,
+    panel: Panel?,
+    actions: ToolActions,
+    open: (Panel) -> () -> Unit,
+    moved: Boolean,
+    picture: Boolean,
+) {
+    if (picture || selected.kind == ClipKind.Audio) add(Tool(ConcatIcons.Import, "Replace") { actions.replace(selected.kind == ClipKind.Audio) })
+    if (selected.kind == ClipKind.Video) {
+        add(Tool(if (selected.muted) ConcatIcons.VolumeOff else ConcatIcons.Volume, if (selected.muted) "Unmute" else "Mute", onClick = actions.model::toggleMute))
+    }
+    if (selected.placeable) add(Tool(ConcatIcons.Reset, "Reset", enabled = moved, onClick = actions.model::resetTransform))
+    if (selected.kind.hasSound) add(Tool(ConcatIcons.Rows, "Captions", active = panel == Panel.Captions, onClick = open(Panel.Captions)))
+    if (picture && selected.trackId == mainTrackId) add(Tool(ConcatIcons.Transition, "Transition", active = panel == Panel.Transitions, onClick = open(Panel.Transitions)))
 }
 

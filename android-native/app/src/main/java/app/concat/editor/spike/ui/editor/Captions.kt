@@ -37,8 +37,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.concat.editor.spike.api.CaptionSegment
+import app.concat.editor.spike.api.CaptionsPlacementRequest
 import app.concat.editor.spike.api.Clip
 import app.concat.editor.spike.api.JobTracker
+import app.concat.editor.spike.api.ModelInfo
 import app.concat.editor.spike.api.errorMessage
 import app.concat.editor.spike.api.wasCancelled
 import app.concat.editor.spike.concat
@@ -167,7 +169,7 @@ class CaptionsViewModel(application: Application, private val path: String) : An
         val clip = now.clipId ?: return
         val segments = now.segments.filter { it.text.isNotBlank() }
         if (segments.isEmpty()) return
-        editor.edit("Captions") { api.captionsPlace(path, clip, segments, now.placement, now.size) }
+        editor.edit("Captions") { api.captionsPlace(CaptionsPlacementRequest(path, clip, segments, now.placement, now.size)) }
         _ui.update { it.copy(step = CaptionsStep.Setup, segments = emptyList()) }
         done()
     }
@@ -189,7 +191,7 @@ fun CaptionsSheet(captions: CaptionsViewModel, editor: EditorViewModel, preferCl
         (wanted ?: sound.firstOrNull()?.id)?.let(captions::chooseClip)
     }
     LaunchedEffect(models.info.transcribers) {
-        if (ui.model == null || models.info.transcribers.none { it.id == ui.model && it.downloaded }) {
+        if (needsDefaultCaptionModel(ui.model, models.info.transcribers)) {
             models.info.transcribers.firstOrNull { it.downloaded }?.let { captions.chooseModel(it.id) }
         }
     }
@@ -273,3 +275,6 @@ fun CaptionsSheet(captions: CaptionsViewModel, editor: EditorViewModel, preferCl
         }
     }
 }
+
+private fun needsDefaultCaptionModel(model: String?, transcribers: List<ModelInfo>): Boolean =
+    model == null || transcribers.none { it.id == model && it.downloaded }

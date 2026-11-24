@@ -40,9 +40,7 @@ import app.concat.editor.spike.ui.theme.Spacing
 fun CoverPanel(
     cover: Bitmap?,
     named: Boolean,
-    onFrame: () -> Unit,
-    onPicture: () -> Unit,
-    onReset: () -> Unit,
+    actions: CoverActions,
     onClose: () -> Unit,
 ) {
     ToolPanel("Cover", onClose = onClose, onConfirm = onClose) {
@@ -59,11 +57,17 @@ fun CoverPanel(
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 PanelLabel(if (named) "Shown on the project's card." else "A frame early in the edit, until you choose one.")
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    AccentButton("This frame", onFrame, icon = ConcatIcons.Frame)
-                    GhostButton("From photos", onPicture, icon = ConcatIcons.Image)
+                    AccentButton("This frame", actions.onFrame, icon = ConcatIcons.Frame)
+                    GhostButton("From photos", actions.onPicture, icon = ConcatIcons.Image)
                 }
-                if (named) GhostButton("Use the edit's", onReset, icon = ConcatIcons.Reset)
+                if (named) GhostButton("Use the edit's", actions.onReset, icon = ConcatIcons.Reset)
             }
         }
     }
 }
+
+data class CoverActions(
+    val onFrame: () -> Unit,
+    val onPicture: () -> Unit,
+    val onReset: () -> Unit,
+)

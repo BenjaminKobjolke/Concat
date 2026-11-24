@@ -6,6 +6,7 @@ package app.concat.editor.spike.ui.editor
 import android.util.Log
 import androidx.lifecycle.viewModelScope
 import app.concat.editor.spike.concat
+import app.concat.editor.spike.api.PreviewFrameRequest
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,11 +72,13 @@ internal class EditorLifecycleActions(
         val height = (width * view.height.toDouble() / view.width.coerceAtLeast(1)).toInt()
         try {
             model.api.previewFrameTo(
-                model.path,
-                (view.duration * 0.25).coerceAtMost(2.0),
-                File(folder, EditorViewModel.THUMBNAIL).absolutePath,
-                width,
-                height,
+                PreviewFrameRequest(
+                    model.path,
+                    (view.duration * 0.25).coerceAtMost(2.0),
+                    File(folder, EditorViewModel.THUMBNAIL).absolutePath,
+                    width,
+                    height,
+                ),
             )
         } catch (error: Exception) {
             Log.w(EditorViewModel.TAG, "no thumbnail for ${model.path}: ${error.message}")

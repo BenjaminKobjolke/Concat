@@ -90,13 +90,7 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
     val menuState = remember { mutableStateOf(Menu.Root) }
     var menu by menuState
     val panelState = remember {
-        mutableStateOf(
-            when (startTool) {
-                "captions" -> Panel.Captions
-                "speech" -> Panel.Speech
-                else -> null
-            },
-        )
+        mutableStateOf(initialEditorPanel(startTool))
     }
     var panel by panelState
     val catalogueShelfState = remember { mutableStateOf<Shelf?>(null) }
@@ -109,28 +103,8 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
     var inlineEdit by inlineEditState
 
     // Pause when the app is covered; save when it is no longer seen.
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, model) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE -> model.pause()
-                Lifecycle.Event.ON_STOP -> model.save()
-                else -> Unit
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
-    BackHandler {
-        when {
-            inlineEdit != null -> inlineEdit = null
-            fullscreen -> fullscreen = false
-            panel != null -> panel = null
-            ui.selected != null -> model.select(null)
-            menu != Menu.Root -> menu = Menu.Root
-            else -> model.close(onClosed)
-        }
-    }
+    EditorLifecycleEffects(model)
+    BackHandler(onBack = editorBackAction(model, menuState, panelState, fullscreenState, inlineEditState, ui.selected != null, onClosed))
 
     val pickVisual = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(50)) { uris ->
         model.import(uris, audio = false)
@@ -179,5 +153,46 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
             }),
         ),
     )
+}
+
+private fun initialEditorPanel(startTool: String?): Panel? = when (startTool) {
+    "captions" -> Panel.Captions
+    "speech" -> Panel.Speech
+    else -> null
+}
+
+@Composable
+private fun EditorLifecycleEffects(model: EditorViewModel) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, model) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> model.pause()
+                Lifecycle.Event.ON_STOP -> model.save()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+}
+
+private fun editorBackAction(
+    model: EditorViewModel,
+    menu: androidx.compose.runtime.MutableState<Menu>,
+    panel: androidx.compose.runtime.MutableState<Panel?>,
+    fullscreen: androidx.compose.runtime.MutableState<Boolean>,
+    inlineEdit: androidx.compose.runtime.MutableState<String?>,
+    hasSelection: Boolean,
+    onClosed: () -> Unit,
+): () -> Unit = {
+    when {
+        inlineEdit.value != null -> inlineEdit.value = null
+        fullscreen.value -> fullscreen.value = false
+        panel.value != null -> panel.value = null
+        hasSelection -> model.select(null)
+        menu.value != Menu.Root -> menu.value = Menu.Root
+        else -> model.close(onClosed)
+    }
 }
 

@@ -68,6 +68,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.concat.editor.spike.api.ProjectInfo
+import app.concat.editor.spike.api.ProjectVideo
+import app.concat.editor.spike.api.PreviewFrameRequest
 import app.concat.editor.spike.concat
 import app.concat.editor.spike.ui.components.ChoiceChip
 import app.concat.editor.spike.ui.components.ConcatIcon
@@ -118,7 +120,7 @@ class ProjectsViewModel(application: Application) : AndroidViewModel(application
         val thumb = File(folder, THUMBNAIL)
         if (!thumb.exists() && app.api.engine.isFake) {
             try {
-                app.api.previewFrameTo(info.path, 0.5, thumb.absolutePath, 270, (270.0 * info.height / info.width.coerceAtLeast(1)).toInt())
+                app.api.previewFrameTo(PreviewFrameRequest(info.path, 0.5, thumb.absolutePath, 270, (270.0 * info.height / info.width.coerceAtLeast(1)).toInt()))
             } catch (_: Exception) {
             }
         }
@@ -142,7 +144,11 @@ class ProjectsViewModel(application: Application) : AndroidViewModel(application
     fun create(name: String, aspect: Aspect, onOpen: (String) -> Unit) {
         viewModelScope.launch {
             try {
-                val path = app.api.createProject(app.projectsDir.absolutePath, name.trim(), aspect.width, aspect.height, 30)
+                val path = app.api.createProject(
+                    app.projectsDir.absolutePath,
+                    name.trim(),
+                    ProjectVideo(aspect.width, aspect.height, 30),
+                )
                 onOpen(path)
             } catch (error: Exception) {
                 _ui.update { it.copy(message = error.message) }

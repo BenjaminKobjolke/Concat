@@ -21,15 +21,24 @@ internal object ProjectViewParser {
             cover = project.optJSONObject("cover"),
             canUndo = json.optBoolean("canUndo"),
             canRedo = json.optBoolean("canRedo"),
-            media = (project.optJSONArray("media") ?: JSONArray()).objects().map(::mediaItem),
-            tracks = (timeline.optJSONArray("tracks") ?: JSONArray()).objects().map {
-                Track(it.optString("id"), it.optBoolean("visible", true), it.optBoolean("muted"), it.optJSONObject("captions"))
-            },
-            clips = (timeline.optJSONArray("clips") ?: JSONArray()).objects().map(::clip).sortedBy { it.start },
+            media = mediaItems(project),
+            tracks = trackItems(timeline),
+            clips = clipItems(timeline),
             createdId = json.optString("createdId").ifEmpty { null },
             timelineId = timeline.optString("id"),
         )
     }
+
+    private fun mediaItems(project: JSONObject) =
+        (project.optJSONArray("media") ?: JSONArray()).objects().map(::mediaItem)
+
+    private fun trackItems(timeline: JSONObject) =
+        (timeline.optJSONArray("tracks") ?: JSONArray()).objects().map {
+            Track(it.optString("id"), it.optBoolean("visible", true), it.optBoolean("muted"), it.optJSONObject("captions"))
+        }
+
+    private fun clipItems(timeline: JSONObject) =
+        (timeline.optJSONArray("clips") ?: JSONArray()).objects().map(::clip).sortedBy { it.start }
 
     private fun activeTimeline(project: JSONObject): JSONObject {
         val timelines = project.optJSONArray("timelines") ?: JSONArray()

@@ -54,12 +54,12 @@ class ConcatApi(val engine: EngineBridge) {
         (request(method("project.list")) as? JSONArray)?.objects()?.map(ProjectInfo::from) ?: emptyList()
 
     /** Makes a project folder named after [name] under [location], opens it and says where it is. */
-    suspend fun createProject(location: String, name: String, width: Int, height: Int, fps: Int): String {
+    suspend fun createProject(location: String, name: String, video: ProjectVideo): String {
         request(
             method("project.create")
                 .put("location", location)
                 .put("name", name)
-                .put("video", JSONObject().put("width", width).put("height", height).put("rateNum", fps).put("rateDen", 1)),
+                .put("video", JSONObject().put("width", video.width).put("height", video.height).put("rateNum", video.rateNum).put("rateDen", video.rateDen)),
         )
         // The reply is the editor view, which names no folder; recents put
         // the new project first.
@@ -74,9 +74,9 @@ class ConcatApi(val engine: EngineBridge) {
     suspend fun rename(path: String, name: String) = request(method("project.save").put("path", path).put("name", name))
 
     /** Sets the active timeline's frame and rate, one undo step: `project.setVideo`. */
-    suspend fun setVideo(path: String, width: Int, height: Int, rateNum: Long, rateDen: Long) = view(
+    suspend fun setVideo(path: String, video: ProjectVideo) = view(
         method("project.setVideo").put("path", path)
-            .put("video", JSONObject().put("width", width).put("height", height).put("rateNum", rateNum).put("rateDen", rateDen)),
+            .put("video", JSONObject().put("width", video.width).put("height", video.height).put("rateNum", video.rateNum).put("rateDen", video.rateDen)),
     )
 
     // -- pictures and sound outlines for the timeline --
@@ -90,10 +90,10 @@ class ConcatApi(val engine: EngineBridge) {
      * bytes. The reply's picture is `png` (concat-api's `Picture`); an
      * older build's `pngBase64` is read too.
      */
-    suspend fun mediaFilmstrip(file: String, from: Double, to: Double, count: Int, height: Int): ByteArray {
+    suspend fun mediaFilmstrip(request: FilmstripRequest): ByteArray {
         val reply = request(
-            method("media.filmstrip").put("file", file).put("from", from).put("to", to)
-                .put("count", count.coerceIn(1, 60)).put("height", height.coerceIn(16, 240)),
+            method("media.filmstrip").put("file", request.file).put("from", request.from).put("to", request.to)
+                .put("count", request.count.coerceIn(1, 60)).put("height", request.height.coerceIn(16, 240)),
         ) as JSONObject
         return decodePicture(reply)
     }
@@ -112,8 +112,9 @@ class ConcatApi(val engine: EngineBridge) {
     }
 
     /** `preview.frame`: the true frame at [time], written to [output] as a PNG. */
-    suspend fun previewFrameTo(path: String, time: Double, output: String, width: Int, height: Int) = request(
-        method("preview.frame").put("path", path).put("time", time).put("output", output).put("width", width).put("height", height),
+    suspend fun previewFrameTo(frame: PreviewFrameRequest) = request(
+        method("preview.frame").put("path", frame.path).put("time", frame.time).put("output", frame.output)
+            .put("width", frame.width).put("height", frame.height),
     )
 
     private fun decodePicture(reply: JSONObject): ByteArray {
@@ -130,15 +131,15 @@ class ConcatApi(val engine: EngineBridge) {
         view(method("edit.apply").put("path", path).put("command", command))
 
     /** Starts an export; the job's name. */
-    suspend fun exportRun(path: String, output: String, width: Int, height: Int, crf: Int, preset: String): String {
+    suspend fun exportRun(export: ExportRequest): String {
         val started = request(
             method("export.run")
-                .put("path", path)
-                .put("output", output)
-                .put("width", width)
-                .put("height", height)
-                .put("crf", crf)
-                .put("preset", preset)
+                .put("path", export.path)
+                .put("output", export.output)
+                .put("width", export.width)
+                .put("height", export.height)
+                .put("crf", export.crf)
+                .put("preset", export.preset)
                 .put("codec", "h264"),
         ) as JSONObject
         return started.getString("job")
@@ -200,10 +201,10 @@ class ConcatApi(val engine: EngineBridge) {
     }
 
     /** Puts [segments] over [clipId] as titles, one undo step. */
-    suspend fun captionsPlace(path: String, clipId: String, segments: List<CaptionSegment>, placement: String, size: String) = view(
-        method("captions.place").put("path", path).put("clipId", clipId)
-            .put("segments", JSONArray().apply { segments.forEach { put(it.toJson()) } })
-            .put("placement", placement).put("size", size),
+    suspend fun captionsPlace(captions: CaptionsPlacementRequest) = view(
+        method("captions.place").put("path", captions.path).put("clipId", captions.clipId)
+            .put("segments", JSONArray().apply { captions.segments.forEach { put(it.toJson()) } })
+            .put("placement", captions.placement).put("size", captions.size),
     )
 
     suspend fun captionsCancel(job: String) = request(method("captions.cancel").put("job", job))
@@ -211,10 +212,10 @@ class ConcatApi(val engine: EngineBridge) {
     // -- reading aloud --
 
     /** Starts reading [text] into a file in the project; the job's name. */
-    suspend fun speechSpeak(path: String, text: String, model: String, voice: Int, speed: Double): String =
+    suspend fun speechSpeak(speech: SpeechRequest): String =
         (request(
-            method("speech.speak").put("path", path).put("text", text).put("model", model)
-                .put("voice", voice).put("speed", speed),
+            method("speech.speak").put("path", speech.path).put("text", speech.text).put("model", speech.model)
+                .put("voice", speech.voice).put("speed", speech.speed),
         ) as JSONObject).getString("job")
 
     suspend fun speechCancel(job: String) = request(method("speech.cancel").put("job", job))
@@ -249,108 +250,4 @@ class ConcatApi(val engine: EngineBridge) {
     private companion object {
         const val TAG = "concat-api"
     }
-}
-
-/** concat-project's `Command`s, as `edit.apply` carries them: `{"op": ..., camelCase fields}`. */
-object Commands {
-    private fun op(name: String) = JSONObject().put("op", name)
-    private fun ids(ids: List<String>) = JSONArray().apply { ids.forEach { put(it) } }
-
-    fun addClipsInSequence(mediaIds: List<String>, start: Double, trackId: String? = null) =
-        op("addClipsInSequence").put("mediaIds", ids(mediaIds)).put("start", start)
-            .put("trackId", trackId ?: JSONObject.NULL).put("ripple", trackId != null)
-
-    fun addClip(mediaId: String, trackId: String, start: Double, ripple: Boolean) =
-        op("addClip").put("mediaId", mediaId).put("trackId", trackId).put("start", start).put("ripple", ripple)
-
-    fun addTextClip(start: Double, style: JSONObject, duration: Double? = null, trackId: String? = null) =
-        op("addTextClip").put("trackId", trackId ?: JSONObject.NULL).put("above", true).put("start", start)
-            .put("style", style).apply { if (duration != null) put("duration", duration) }
-
-    /** A caption lane's look ([look] is `{style, offsetY}`), every caption on it restyled to match, words kept. */
-    fun setCaptionLook(trackId: String, look: JSONObject) = op("setCaptionLook").put("trackId", trackId).put("look", look)
-
-    /** The project's cover: a frame at [time], a picture at [picture], or with neither back to a frame early in. */
-    fun setCover(time: Double? = null, picture: String? = null) = op("setCover").put(
-        "cover",
-        when {
-            picture != null -> JSONObject().put("kind", "picture").put("path", picture)
-            time != null -> JSONObject().put("kind", "frame").put("time", time)
-            else -> JSONObject.NULL
-        },
-    )
-
-    /** A sticker over the picture, on the first free lane above it: [style] is the card's, [name] what the lane calls it. */
-    fun addShapeClip(start: Double, style: JSONObject, name: String, duration: Double? = null) =
-        op("addShapeClip").put("trackId", JSONObject.NULL).put("above", true).put("start", start)
-            .put("style", style).put("name", name).apply { if (duration != null) put("duration", duration) }
-
-    fun splitClips(clipIds: List<String>, time: Double) = op("splitClips").put("clipIds", ids(clipIds)).put("time", time)
-
-    fun duplicateClips(clipIds: List<String>) = op("duplicateClips").put("clipIds", ids(clipIds))
-
-    fun removeClips(clipIds: List<String>, ripple: Boolean = true) =
-        op("removeClips").put("clipIds", ids(clipIds)).put("ripple", ripple)
-
-    fun setClipSpeed(clipId: String, speed: Double) =
-        op("setClipSpeed").put("clipId", clipId).put("speed", speed).put("ripple", true)
-
-    fun trimClip(clipId: String, edge: String, delta: Double, ripple: Boolean) =
-        op("trimClip").put("clipId", clipId).put("edge", edge).put("delta", delta).put("ripple", ripple)
-
-    fun updateClip(clipId: String, patch: JSONObject) = op("updateClip").put("clipId", clipId).put("patch", patch)
-
-    /**
-     * The picture's placement: concat-project's `SetClipTransform` (the
-     * transform is not in `ClipPatch`). Scale over the fitted size,
-     * offsets as fractions of the frame (positive right and down),
-     * clockwise degrees.
-     */
-    fun setClipTransform(clipId: String, scale: Double, offsetX: Double, offsetY: Double, rotation: Double) =
-        op("setClipTransform").put("clipId", clipId).put("scale", scale).put("offsetX", offsetX)
-            .put("offsetY", offsetY).put("rotation", rotation)
-
-    /** One key on one property ("scale", "offsetX", "offsetY", "rotation", "opacity", "volume"), [at] 0..1 into the clip. */
-    fun setClipKey(clipId: String, property: String, at: Double, value: Double) =
-        op("setClipKey").put("clipId", clipId).put("property", property).put("at", at).put("value", value)
-
-    fun clearClipKey(clipId: String, property: String, at: Double) =
-        op("clearClipKey").put("clipId", clipId).put("property", property).put("at", at)
-
-    /** What fills the frame behind the lowest picture: `{"kind":"none"}`, `{"kind":"blur","amount":..}`, `{"kind":"color","color":"#rrggbb"}`. */
-    fun setTimelineBackground(timelineId: String, background: JSONObject) =
-        op("setTimelineBackground").put("timelineId", timelineId).put("background", background)
-
-    /** Clips to new starts and lanes in one undo step: `{"op":"moveClips","moves":[{clipId,start,trackId}]}`. */
-    fun moveClips(moves: List<Triple<String, Double, String>>) = op("moveClips").put(
-        "moves",
-        JSONArray().apply {
-            moves.forEach { (clip, start, track) -> put(JSONObject().put("clipId", clip).put("start", start).put("trackId", track)) }
-        },
-    )
-
-    /** Clips onto a lane made for them, on top unless [bottom]: the lane and the move are one undo step. */
-    fun moveClipsToNewTrack(moves: List<Pair<String, Double>>, bottom: Boolean) = op("moveClipsToNewTrack").put(
-        "moves",
-        JSONArray().apply { moves.forEach { (clip, start) -> put(JSONObject().put("clipId", clip).put("start", start)) } },
-    ).put("bottom", bottom)
-
-    /** A new lane, on top of the others unless [bottom]. */
-    fun addTrack(bottom: Boolean) = op("addTrack").put("bottom", bottom)
-
-    /** A transition as a clip of its own over the lanes beneath it. */
-    fun addTransitionClip(transitionId: String, name: String, start: Double, duration: Double? = null, trackId: String? = null) =
-        op("addTransitionClip").put("transitionId", transitionId).put("name", name).put("start", start)
-            .put("trackId", trackId ?: JSONObject.NULL).apply { if (duration != null) put("duration", duration) }
-
-    /** A whole chain as `updateClip` replaces it: [field] is "videoEffects" or "filters". */
-    fun setChain(clipId: String, field: String, chain: List<JSONObject>) =
-        updateClip(clipId, JSONObject().put(field, JSONArray().apply { chain.forEach { put(it) } }))
-
-    fun batch(commands: List<JSONObject>) = op("batch").put("commands", JSONArray().apply { commands.forEach { put(it) } })
-
-    /** A title's style: the document's `TextStyle`; fields left out take its defaults. */
-    fun textStyle(content: String, fontSize: Double, color: String, base: JSONObject? = null, fontWeight: Double? = null): JSONObject =
-        JSONObject(base?.toString() ?: "{}").put("content", content).put("fontSize", fontSize).put("color", color)
-            .apply { if (fontWeight != null) put("fontWeight", fontWeight) }
 }

@@ -4,7 +4,6 @@
 package app.concat.editor.spike.ui.editor
 
 import android.app.Application
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.SystemClock
@@ -14,17 +13,14 @@ import android.view.Surface
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.concat.editor.spike.api.AppliedEffect
-import app.concat.editor.spike.api.ClipBounds
 import app.concat.editor.spike.api.ClipKind
 import app.concat.editor.spike.api.Commands
 import app.concat.editor.spike.api.JobTracker
 import app.concat.editor.spike.api.ProjectView
-import app.concat.editor.spike.api.ShapeCard
 import app.concat.editor.spike.api.errorMessage
 import app.concat.editor.spike.api.wasCancelled
 import app.concat.editor.spike.concat
 import app.concat.editor.spike.engine.PreviewBridge
-import app.concat.editor.spike.export.ExportPreset
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
@@ -43,23 +39,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-
-data class EditorUi(
-    val view: ProjectView? = null,
-    val selected: String? = null,
-    val position: Double = 0.0,
-    val playing: Boolean = false,
-    val busy: Boolean = false,
-    val message: String? = null,
-    /** The clip a reverse is being written for, and how far it is (0..1). */
-    val reversing: Pair<String, Float>? = null,
-    /** Each title's and shape's block as the engine painted it, for the transform box. */
-    val bounds: Map<String, ClipBounds> = emptyMap(),
-    /** The Stickers page's cards, once the engine has said them. */
-    val stickers: List<ShapeCard> = emptyList(),
-    /** The cover the project names, painted; none while it names none (the timeline shows its first frame). */
-    val cover: Bitmap? = null,
-)
 
 /**
  * One open project: its state as the API last replied, the playhead, the
@@ -278,22 +257,9 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
 
     fun importOverlay(uris: List<Uri>) = importEditorOverlays(uris)
 
-    // -- export --
+    internal fun launchInViewModelScope(block: suspend () -> Unit) = viewModelScope.launch { block() }
 
-    fun export(preset: ExportPreset) {
-        val view = _ui.value.view ?: return
-        pause()
-        viewModelScope.launch {
-            // The document on disk first: what renders is what was saved.
-            try {
-                api.save(path)
-            } catch (error: Exception) {
-                Log.w(TAG, "save before export failed", error)
-            }
-            exports.start(path, view.name.ifBlank { "Concat" }, view.width, view.height, preset)
-                .onFailure { say(it.message ?: "The export did not start.") }
-        }
-    }
+    // -- export --
 
     // -- lifecycle --
 
