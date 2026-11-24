@@ -39,6 +39,13 @@ internal val CLIP_PANELS = setOf(Panel.Speed, Panel.Volume, Panel.Opacity, Panel
 /** One tool of the bottom toolbar. */
 internal class Tool(val icon: ImageVector, val label: String, val enabled: Boolean = true, val active: Boolean = false, val onClick: () -> Unit)
 
+internal data class ToolbarSelection(
+    val selected: Clip?,
+    val menu: Menu,
+    val mainTrackId: String?,
+    val panel: Panel?,
+)
+
 internal data class TransportState(
     val position: Double,
     val duration: Double,
@@ -106,8 +113,9 @@ internal class ToolActions(
 )
 
 /** The toolbar for what is selected (or the menu open when nothing is): only what the engine does. */
-internal fun toolsFor(selected: Clip?, menu: Menu, mainTrackId: String?, panel: Panel?, actions: ToolActions): List<Tool> {
-    return if (selected == null) menuTools(menu, panel, actions) else clipTools(selected, mainTrackId, panel, actions)
+internal fun toolsFor(selection: ToolbarSelection, actions: ToolActions): List<Tool> {
+    return if (selection.selected == null) menuTools(selection.menu, selection.panel, actions)
+    else clipTools(selection, actions)
 }
 
 private fun menuTools(menu: Menu, panel: Panel?, actions: ToolActions): List<Tool> {
@@ -154,14 +162,15 @@ private fun menuTools(menu: Menu, panel: Panel?, actions: ToolActions): List<Too
     }
 }
 
-private fun clipTools(selected: Clip, mainTrackId: String?, panel: Panel?, actions: ToolActions): List<Tool> {
+private fun clipTools(selection: ToolbarSelection, actions: ToolActions): List<Tool> {
+    val selected = requireNotNull(selection.selected)
     val m = actions.model
     fun open(which: Panel) = { actions.openPanel(which) }
     val back = Tool(ConcatIcons.ChevronLeft, "", onClick = actions.deselect)
     if (selected.kind == ClipKind.Transition) {
         return listOf(
             back,
-            Tool(ConcatIcons.Transition, "Change", active = panel == Panel.Transitions, onClick = open(Panel.Transitions)),
+            Tool(ConcatIcons.Transition, "Change", active = selection.panel == Panel.Transitions, onClick = open(Panel.Transitions)),
             Tool(ConcatIcons.Sliders, "Adjust") { actions.catalogue(Shelf.Transitions, true) },
             Tool(ConcatIcons.Copy, "Duplicate", onClick = m::duplicate),
             Tool(ConcatIcons.Trash, "Delete", onClick = m::delete),
@@ -169,18 +178,19 @@ private fun clipTools(selected: Clip, mainTrackId: String?, panel: Panel?, actio
     }
     return buildList {
         add(back)
-        addSelectedClipTools(selected, panel, actions, ::open, this)
-        addSelectedClipStateTools(selected, mainTrackId, panel, actions, ::open, this)
+        addSelectedClipTools(selection, actions, ::open, this)
+        addSelectedClipStateTools(selection, actions, ::open, this)
     }
 }
 
 private fun addSelectedClipTools(
-    selected: Clip,
-    panel: Panel?,
+    selection: ToolbarSelection,
     actions: ToolActions,
     open: (Panel) -> () -> Unit,
     tools: MutableList<Tool>,
 ) {
+    val selected = requireNotNull(selection.selected)
+    val panel = selection.panel
     val model = actions.model
     with(tools) {
         if (selected.kind == ClipKind.Text) add(Tool(ConcatIcons.TextMark, "Edit", active = panel == Panel.TextEdit, onClick = open(Panel.TextEdit)))
@@ -200,13 +210,14 @@ private fun addSelectedClipTools(
 }
 
 private fun addSelectedClipStateTools(
-    selected: Clip,
-    mainTrackId: String?,
-    panel: Panel?,
+    selection: ToolbarSelection,
     actions: ToolActions,
     open: (Panel) -> () -> Unit,
     tools: MutableList<Tool>,
 ) {
+    val selected = requireNotNull(selection.selected)
+    val mainTrackId = selection.mainTrackId
+    val panel = selection.panel
     val picture = selected.kind == ClipKind.Video || selected.kind == ClipKind.Image
     val moved = selected.scale != 1.0 || selected.offsetX != 0.0 || selected.offsetY != 0.0 || selected.rotation != 0.0
     with(tools) {

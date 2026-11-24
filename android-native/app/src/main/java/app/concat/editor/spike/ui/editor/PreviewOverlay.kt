@@ -72,6 +72,15 @@ internal data class PreviewOverlayActions(
     val onEditText: (clipId: String) -> Unit,
 )
 
+internal data class PreviewOverlayState(
+    val view: ProjectView,
+    val position: Double,
+    val selected: String?,
+    val mainTrackId: String?,
+    val bounds: Map<String, ClipBounds>,
+    val actions: PreviewOverlayActions,
+)
+
 /**
  * Editing on the preview: tap a title, picture or overlay to select it;
  * one finger drags it, two pinch and turn it, a corner handle scales and
@@ -82,14 +91,15 @@ internal data class PreviewOverlayActions(
  */
 @Composable
 internal fun PreviewOverlay(
-    view: ProjectView,
-    position: Double,
-    selected: String?,
-    mainTrackId: String?,
-    bounds: Map<String, ClipBounds>,
-    actions: PreviewOverlayActions,
+    state: PreviewOverlayState,
     modifier: Modifier = Modifier,
 ) {
+    val view = state.view
+    val position = state.position
+    val selected = state.selected
+    val mainTrackId = state.mainTrackId
+    val bounds = state.bounds
+    val actions = state.actions
     val haptics = LocalHapticFeedback.current
     val liveState = remember { mutableStateOf<Pair<String, Placement>?>(null) }
     var live by liveState
@@ -134,7 +144,7 @@ private fun DrawScope.drawPreviewOverlay(drawing: PreviewDrawing) {
         it.placeable && drawing.position >= it.start && drawing.position < it.end
     } ?: return
     val placement = drawing.live?.takeIf { it.first == clip.id }?.second ?: Placement.of(clip)
-    val box = boxOf(drawing.view, clip, placement, frame, drawing.bounds)
+    val box = boxOf(ClipBoxRequest(drawing.view, clip, placement, frame, drawing.bounds))
     drawPreviewSelection(box, drawing.alpha, drawing.rotateGlyph)
 }
 

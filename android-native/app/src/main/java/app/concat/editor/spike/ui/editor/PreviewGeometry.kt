@@ -45,47 +45,81 @@ internal class Box(val centre: Offset, val width: Float, val height: Float, val 
     val corners get() = listOf(corner(-1f, -1f), corner(1f, -1f), corner(1f, 1f), corner(-1f, 1f))
 }
 
+internal data class ClipBoxRequest(
+    val view: ProjectView,
+    val clip: Clip,
+    val placement: Placement,
+    val frame: Size,
+    val bounds: Map<String, ClipBounds> = emptyMap(),
+)
+
+private data class ClipBoxGeometry(val centre: Offset, val scale: Float, val turn: Float, val frame: Size)
+
 /**
  * Where [clip] is drawn on a [frame]-sized picture at [placement]: a title's
  * lines at its size, a picture fitted to the frame (by its own aspect when
  * the probe found one).
  */
-internal fun boxOf(view: ProjectView, clip: Clip, placement: Placement, frame: Size, bounds: Map<String, ClipBounds> = emptyMap()): Box {
+internal fun boxOf(request: ClipBoxRequest): Box {
+    val clip = request.clip
+    val placement = request.placement
+    val frame = request.frame
     val centre = Offset(
         frame.width / 2f + (placement.offsetX * frame.width).toFloat(),
         frame.height / 2f + (placement.offsetY * frame.height).toFloat(),
     )
-    val scale = placement.scale.toFloat()
-    val turn = placement.rotation.toFloat()
-    val painted = bounds[clip.id]?.takeIf { clip.kind == ClipKind.Text || clip.kind == ClipKind.Shape }
-    if (painted != null) {
-        val px = (painted.offsetX * frame.width).toFloat() * scale
-        val py = (painted.offsetY * frame.height).toFloat() * scale
-        val radians = turn * PI.toFloat() / 180f
-        val shift = Offset(px * cos(radians) - py * sin(radians), px * sin(radians) + py * cos(radians))
-        return Box(
-            centre + shift,
-            (painted.width * frame.width).toFloat() * scale,
-            (painted.height * frame.height).toFloat() * scale,
-            turn,
-            anchor = centre,
-        )
-    }
+    val geometry = ClipBoxGeometry(centre, placement.scale.toFloat(), placement.rotation.toFloat(), frame)
+    val painted = request.bounds[clip.id]?.takeIf { clip.kind == ClipKind.Text || clip.kind == ClipKind.Shape }
+    if (painted != null) return paintedBox(painted, geometry)
     if (clip.kind == ClipKind.Text) {
-        val style = clip.text
-        val font = ((style?.optDouble("fontSize", 0.09) ?: 0.09).toFloat() * frame.height * scale).coerceAtLeast(6f)
-        val lines = (style?.optString("content") ?: clip.name).lines().ifEmpty { listOf("") }
-        val longest = lines.maxOf { it.length }.coerceAtLeast(1)
-        val pad = font * 0.3f
-        return Box(centre, longest * font * 0.5f + pad * 2, lines.size * font * 1.2f + pad * 2, turn)
+        return textBox(clip, geometry)
     }
     if (clip.kind == ClipKind.Shape) {
-        val side = 0.35f * frame.height * scale
-        return Box(centre, side, side, turn)
+        return shapeBox(geometry)
     }
-    val media = view.mediaOf(clip)
-    val aspect = if (media != null && media.width > 0 && media.height > 0) media.width.toFloat() / media.height else frame.width / frame.height
-    val fitted = if (aspect > frame.width / frame.height) Size(frame.width, frame.width / aspect) else Size(frame.height * aspect, frame.height)
-    return Box(centre, fitted.width * scale, fitted.height * scale, turn)
+    return mediaBox(request, geometry)
+}
+
+private fun paintedBox(painted: ClipBounds, geometry: ClipBoxGeometry): Box {
+    val px = (painted.offsetX * geometry.frame.width).toFloat() * geometry.scale
+    val py = (painted.offsetY * geometry.frame.height).toFloat() * geometry.scale
+    val radians = geometry.turn * PI.toFloat() / 180f
+    val shift = Offset(px * cos(radians) - py * sin(radians), px * sin(radians) + py * cos(radians))
+    return Box(
+        geometry.centre + shift,
+        (painted.width * geometry.frame.width).toFloat() * geometry.scale,
+        (painted.height * geometry.frame.height).toFloat() * geometry.scale,
+        geometry.turn,
+        anchor = geometry.centre,
+    )
+}
+
+private fun textBox(clip: Clip, geometry: ClipBoxGeometry): Box {
+    val style = clip.text
+    val font = ((style?.optDouble("fontSize", 0.09) ?: 0.09).toFloat() * geometry.frame.height * geometry.scale).coerceAtLeast(6f)
+    val lines = (style?.optString("content") ?: clip.name).lines().ifEmpty { listOf("") }
+    val longest = lines.maxOf { it.length }.coerceAtLeast(1)
+    val pad = font * 0.3f
+    return Box(geometry.centre, longest * font * 0.5f + pad * 2, lines.size * font * 1.2f + pad * 2, geometry.turn)
+}
+
+private fun shapeBox(geometry: ClipBoxGeometry): Box {
+    val side = 0.35f * geometry.frame.height * geometry.scale
+    return Box(geometry.centre, side, side, geometry.turn)
+}
+
+private fun mediaBox(request: ClipBoxRequest, geometry: ClipBoxGeometry): Box {
+    val media = request.view.mediaOf(request.clip)
+    val aspect = if (media != null && media.width > 0 && media.height > 0) {
+        media.width.toFloat() / media.height
+    } else {
+        geometry.frame.width / geometry.frame.height
+    }
+    val fitted = if (aspect > geometry.frame.width / geometry.frame.height) {
+        Size(geometry.frame.width, geometry.frame.width / aspect)
+    } else {
+        Size(geometry.frame.height * aspect, geometry.frame.height)
+    }
+    return Box(geometry.centre, fitted.width * geometry.scale, fitted.height * geometry.scale, geometry.turn)
 }
 

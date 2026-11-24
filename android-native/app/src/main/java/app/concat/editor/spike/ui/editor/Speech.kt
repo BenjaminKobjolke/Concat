@@ -5,6 +5,8 @@ package app.concat.editor.spike.ui.editor
 
 import android.app.Application
 import app.concat.editor.spike.api.SpeechRequest
+import app.concat.editor.spike.api.ModelInfo
+import app.concat.editor.spike.api.VoiceItem
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -44,6 +46,8 @@ import app.concat.editor.spike.ui.Palette
 import app.concat.editor.spike.ui.components.ToolPanel
 import app.concat.editor.spike.ui.components.ToolPanelLayout
 import app.concat.editor.spike.ui.theme.ConcatColors
+import app.concat.editor.spike.models.ModelStore
+import app.concat.editor.spike.models.ModelsState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -142,6 +146,17 @@ class SpeechViewModel(application: Application, private val path: String) : Andr
     }
 }
 
+private data class SpeechSheetContentState(
+    val speech: SpeechViewModel,
+    val editor: EditorViewModel,
+    val ui: SpeechUi,
+    val models: ModelsState,
+    val model: ModelInfo?,
+    val voices: List<VoiceItem>,
+    val store: ModelStore,
+    val close: () -> Unit,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpeechSheet(speech: SpeechViewModel, editor: EditorViewModel, onDismiss: () -> Unit) {
@@ -165,41 +180,47 @@ fun SpeechSheet(speech: SpeechViewModel, editor: EditorViewModel, onDismiss: () 
         onDismiss()
     }
 
-    ToolPanel("Text to speech", onClose = close, layout = ToolPanelLayout(scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp))) {
+    SpeechSheetContent(SpeechSheetContentState(speech, editor, ui, models, model, voices, store, close))
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SpeechSheetContent(state: SpeechSheetContentState) {
+    ToolPanel("Text to speech", onClose = state.close, layout = ToolPanelLayout(scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp))) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).imePadding().heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ui.error?.let { Text(it, color = ConcatColors.warn, fontSize = 12.sp) }
+            state.ui.error?.let { Text(it, color = ConcatColors.warn, fontSize = 12.sp) }
             OutlinedTextField(
-                value = ui.text,
-                onValueChange = speech::setText,
+                value = state.ui.text,
+                onValueChange = state.speech::setText,
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("What should be said") },
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 minLines = 3,
                 maxLines = 8,
-                enabled = !ui.running,
+                enabled = !state.ui.running,
             )
             SectionLabel("Model")
-            ModelPicker(models.info.speech, ui.model, models.downloads, { speech.chooseModel(it.id) }, store::download)
-            if (voices.isNotEmpty()) {
+            ModelPicker(state.models.info.speech, state.ui.model, state.models.downloads, { state.speech.chooseModel(it.id) }, state.store::download)
+            if (state.voices.isNotEmpty()) {
                 SectionLabel("Voice")
-                ChoiceChips(voices.map { it.id }, ui.voice ?: -1, { id -> voices.first { it.id == id }.name }, speech::chooseVoice)
+                ChoiceChips(state.voices.map { it.id }, state.ui.voice ?: -1, { id -> state.voices.first { it.id == id }.name }, state.speech::chooseVoice)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("Speed")
                 Spacer(Modifier.weight(1f))
-                Text("%.2fx".format(ui.speed), color = Palette.accent, fontSize = 12.sp)
+                Text("%.2fx".format(state.ui.speed), color = Palette.accent, fontSize = 12.sp)
             }
-            Slider(value = ui.speed, onValueChange = speech::setSpeed, valueRange = 0.5f..2f, steps = 5)
-            if (ui.running) {
-                JobProgress(ui.stage, ui.fraction)
-                OutlinedButton(onClick = speech::cancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+            Slider(value = state.ui.speed, onValueChange = state.speech::setSpeed, valueRange = 0.5f..2f, steps = 5)
+            if (state.ui.running) {
+                JobProgress(state.ui.stage, state.ui.fraction)
+                OutlinedButton(onClick = state.speech::cancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
             } else {
                 Button(
-                    onClick = { speech.speak(editor, onDismiss) },
-                    enabled = ui.text.isNotBlank() && model?.downloaded == true,
+                    onClick = { state.speech.speak(state.editor, state.close) },
+                    enabled = state.ui.text.isNotBlank() && state.model?.downloaded == true,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Speak and place at playhead") }
             }

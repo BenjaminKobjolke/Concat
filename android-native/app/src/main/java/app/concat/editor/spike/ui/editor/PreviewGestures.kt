@@ -72,11 +72,11 @@ internal data class PreviewGestureContext(
     val haptics: HapticFeedback,
 )
 
-private data class PreviewGestureTarget(val clip: Clip?, val grip: Grip)
+internal data class PreviewGestureTarget(val clip: Clip?, val grip: Grip)
 
 internal data class PreviewDragResult(val placement: Placement, val travelled: Float)
 
-private class PreviewDragState(
+internal class PreviewDragState(
     val clip: Clip,
     val grip: Grip,
     val down: androidx.compose.ui.input.pointer.PointerInputChange,
@@ -116,7 +116,9 @@ private suspend fun AwaitPointerEventScope.handlePreviewGesture(
     val result = awaitPreviewDrag(context, down, frame, clip, target.grip, start, 8.dp.toPx())
     context.moving.value = false
     context.guides.value = Pair(false, false)
-    finishPreviewGesture(context, clip, result, down.uptimeMillis, viewConfiguration.touchSlop, viewConfiguration.doubleTapTimeoutMillis)
+    finishPreviewGesture(
+        PreviewGestureFinishRequest(context, clip, result, down.uptimeMillis, viewConfiguration.touchSlop, viewConfiguration.doubleTapTimeoutMillis),
+    )
 }
 
 private fun resolvePreviewGestureTarget(
@@ -128,20 +130,24 @@ private fun resolvePreviewGestureTarget(
     val view = context.view.value
     val position = context.position.value
     val chosen = view.clip(context.selected.value)?.takeIf { it.placeable && position >= it.start && position < it.end }
-    val hit = previewHitTest(view, position, context.mainTrackId, point, frame, context.bounds.value)
+    val hit = previewHitTest(PreviewHitTestRequest(view, position, context.mainTrackId, point, frame, context.bounds.value))
     val over = hit?.takeIf { it.id != chosen?.id && it.trackId != context.mainTrackId }
-    var grip = Grip.None
-    if (chosen != null) {
-        val placement = context.live.value?.takeIf { it.first == chosen.id }?.second ?: Placement.of(chosen)
-        val box = boxOf(view, chosen, placement, frame, context.bounds.value)
-        grip = when {
-            box.corners.any { (it - point).getDistance() < handleReach } -> Grip.Corner
-            over == null && box.contains(point, 6f) -> Grip.Body
-            else -> Grip.None
-        }
-        if (grip != Grip.None) return PreviewGestureTarget(chosen, grip)
+    val chosenTarget = chosen?.let {
+        chosenPreviewGestureTarget(ChosenPreviewGestureTargetRequest(context, it, over, point, frame, handleReach))
     }
+    if (chosenTarget != null) return chosenTarget
     return PreviewGestureTarget(hit, if (hit == null) Grip.None else Grip.Body)
+}
+
+private fun chosenPreviewGestureTarget(request: ChosenPreviewGestureTargetRequest): PreviewGestureTarget? {
+    val placement = request.context.live.value?.takeIf { it.first == request.chosen.id }?.second ?: Placement.of(request.chosen)
+    val box = boxOf(ClipBoxRequest(request.context.view.value, request.chosen, placement, request.frame, request.context.bounds.value))
+    val grip = when {
+        box.corners.any { (it - request.point).getDistance() < request.handleReach } -> Grip.Corner
+        request.over == null && box.contains(request.point, 6f) -> Grip.Body
+        else -> Grip.None
+    }
+    return if (grip == Grip.None) null else PreviewGestureTarget(request.chosen, grip)
 }
 
 private suspend fun AwaitPointerEventScope.awaitEmptyTap(
@@ -168,7 +174,7 @@ private suspend fun AwaitPointerEventScope.awaitPreviewDrag(
     snapPx: Float,
 ): PreviewDragResult {
     val view = context.view.value
-    val startBox = boxOf(view, clip, start, frame, context.bounds.value)
+    val startBox = boxOf(ClipBoxRequest(view, clip, start, frame, context.bounds.value))
     val state = PreviewDragState(clip, grip, down, frame, start, startBox, down.position - startBox.anchor)
     while (true) {
         val event = awaitPointerEvent()
@@ -206,74 +212,56 @@ private fun nextPreviewPlacement(
         scale = (state.now.scale * event.calculateZoom()).coerceIn(0.05, 8.0)
         rotation = state.now.rotation + event.calculateRotation()
         val pan = event.calculatePan()
-        centre = boxOf(context.view.value, state.clip, state.now, state.frame, context.bounds.value).anchor + pan
+        centre = boxOf(ClipBoxRequest(context.view.value, state.clip, state.now, state.frame, context.bounds.value)).anchor + pan
         state.travelled += pan.getDistance() + 20f
     } else {
         val change = event.changes.firstOrNull { it.id == state.down.id } ?: pressed.first()
         centre = change.position - state.grabbed
         state.travelled = max(state.travelled, (change.position - state.down.position).getDistance())
     }
-    return snapPreviewPlacement(context, state, centre, scale, rotation, snapPx)
+    return snapPreviewPlacement(PreviewSnapRequest(context, state, centre, scale, rotation, snapPx))
 }
 
-private fun snapPreviewPlacement(
-    context: PreviewGestureContext,
-    state: PreviewDragState,
-    centre: Offset,
-    scale: Double,
-    rotation: Double,
-    snapPx: Float,
-): Placement {
-    val snapX = abs(centre.x - state.frame.width / 2) < snapPx
-    val snapY = abs(centre.y - state.frame.height / 2) < snapPx
+private fun snapPreviewPlacement(request: PreviewSnapRequest): Placement {
+    val state = request.state
+    val snapX = abs(request.centre.x - state.frame.width / 2) < request.snapPx
+    val snapY = abs(request.centre.y - state.frame.height / 2) < request.snapPx
     val snappedCentre = Offset(
-        if (snapX) state.frame.width / 2 else centre.x,
-        if (snapY) state.frame.height / 2 else centre.y,
+        if (snapX) state.frame.width / 2 else request.centre.x,
+        if (snapY) state.frame.height / 2 else request.centre.y,
     )
-    val square = (rotation / 90.0).roundToInt() * 90.0
-    val snappedRotation = if (abs(rotation - square) < 4.0 && (state.grip == Grip.Corner || state.twoFingers)) square else rotation
+    val snappedRotation = snapPreviewRotation(request.rotation, state)
     if ((snapX && !state.snapped.first) || (snapY && !state.snapped.second)) {
-        context.haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        request.context.haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
     state.snapped = Pair(snapX, snapY)
     return Placement(
-        scale,
+        request.scale,
         ((snappedCentre.x - state.frame.width / 2) / state.frame.width).toDouble(),
         ((snappedCentre.y - state.frame.height / 2) / state.frame.height).toDouble(),
         snappedRotation,
     )
 }
 
-private fun finishPreviewGesture(
-    context: PreviewGestureContext,
-    clip: Clip,
-    result: PreviewDragResult,
-    time: Long,
-    touchSlop: Float,
-    doubleTapTimeout: Long,
-) {
-    if (result.travelled > touchSlop) {
-        context.live.value = clip.id to result.placement
-        context.onCommit.value(clip.id, result.placement)
+private fun snapPreviewRotation(rotation: Double, state: PreviewDragState): Double {
+    val square = (rotation / 90.0).roundToInt() * 90.0
+    return if (abs(rotation - square) < 4.0 && (state.grip == Grip.Corner || state.twoFingers)) square else rotation
+}
+
+private fun finishPreviewGesture(request: PreviewGestureFinishRequest) {
+    val context = request.context
+    val clip = request.clip
+    if (request.result.travelled > request.touchSlop) {
+        context.live.value = clip.id to request.result.placement
+        context.onCommit.value(clip.id, request.result.placement)
         return
     }
     val previousTap = context.lastTap.value
-    if (clip.kind == ClipKind.Text && previousTap.first == clip.id && time - previousTap.second < doubleTapTimeout + 100) {
+    if (clip.kind == ClipKind.Text && previousTap.first == clip.id && request.time - previousTap.second < request.doubleTapTimeout + 100) {
         context.onEditText.value(clip.id)
         context.lastTap.value = Pair("", 0L)
     } else {
-        context.lastTap.value = Pair(clip.id, time)
+        context.lastTap.value = Pair(clip.id, request.time)
     }
-}
-
-private fun previewHitTest(view: ProjectView, position: Double, mainTrackId: String?, point: Offset, frame: Size, bounds: Map<String, ClipBounds>): Clip? {
-    val order = view.tracks.map { it.id }
-    return view.clips.filter { it.placeable && position >= it.start && position < it.end }
-        .sortedWith(
-            compareByDescending<Clip> { it.trackId != mainTrackId }
-                .thenByDescending { it.kind == ClipKind.Text }
-                .thenByDescending { order.indexOf(it.trackId) },
-        )
-        .firstOrNull { boxOf(view, it, Placement.of(it), frame, bounds).contains(point, 8f) }
 }
 

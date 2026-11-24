@@ -39,9 +39,9 @@ internal fun EditorPanelContent(panel: Panel?, context: EditorPanelContext) {
         Panel.Volume -> selected?.let { VolumePanel(it, model::setVolume, model::toggleMute, close) }
         Panel.Opacity -> selected?.let { OpacityPanel(it, model::setOpacity, close) }
         Panel.Fade -> selected?.let { FadePanel(it, model::setFades, close) }
-        Panel.TextNew -> TextPanel(null, { c, s, col, wt -> model.saveText(null, c, s, col, wt) }, close)
+        Panel.TextNew -> TextPanel(TextPanelContext(null, { c, s, col, wt -> model.saveEditorText(null, c, s, col, wt) }, close))
         Panel.TextEdit -> selected?.let { clip ->
-            TextPanel(clip, { c, s, col, wt -> model.saveText(clip.id, c, s, col, wt) }, close)
+            TextPanel(TextPanelContext(clip, { c, s, col, wt -> model.saveEditorText(clip.id, c, s, col, wt) }, close))
         }
         Panel.Effects -> PackagePanel(Shelf.Effects, context.catalogue, model, onMore = {
             context.actions.onOpenCatalogue(Shelf.Effects)

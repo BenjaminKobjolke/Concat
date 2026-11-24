@@ -149,6 +149,13 @@ private val LOOPS = listOf("pulse", "heartbeat", "float", "wiggle", "sway", "jit
 
 private fun moveLabel(kind: String?) = kind?.replace('-', ' ')?.replaceFirstChar { it.uppercase() } ?: "None"
 
+private data class AnimationLengthState(
+    val phase: Phase,
+    val shown: String?,
+    val length: Float,
+    val maximum: Float,
+)
+
 /**
  * How the clip comes on, goes off, and moves all along (`motion`): a move
  * by name for each, and how long it takes. All three empty takes the
@@ -180,30 +187,53 @@ fun AnimationPanel(clip: Clip, onApply: (JSONObject) -> Unit, onClose: () -> Uni
     // An entrance and an exit share the clip; each may take up to half of it.
     val most = if (phase == Phase.Loop) 4f else (clip.duration / 2).coerceIn(0.1, 3.0).toFloat()
     ToolPanel("Animation", onClose = onClose, onConfirm = onClose) {
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            for (each in Phase.entries) {
-                ChoiceChip(each.title + if (kinds[each] != null) " •" else "", phase == each, onClick = {
-                    phase = each
-                    shown = kinds[each]
-                    length = seconds.getValue(each)
-                })
-            }
+        AnimationPhaseTabs(phase, kinds) { selected ->
+            phase = selected
+            shown = kinds[selected]
+            length = seconds.getValue(selected)
         }
         PanelLabel(if (phase == Phase.Loop) "All along" else if (phase == Phase.Enter) "As it comes on" else "As it goes off")
-        Chips(listOf<String?>(null) + if (phase == Phase.Loop) LOOPS else ENTRANCES, shown, ::moveLabel) {
+        AnimationMotionChoices(phase, shown) {
             shown = it
             send()
         }
-        if (shown != null) {
-            ValueSlider(
-                if (phase == Phase.Loop) "One lap" else "Length",
-                length.coerceAtMost(most),
-                0.1f..most,
-                { "%.1fs".format(it) },
-                onChange = { length = it },
-                onDone = ::send,
-            )
+        AnimationLengthControl(AnimationLengthState(phase, shown, length, most), { length = it }, ::send)
+    }
+}
+
+@Composable
+private fun AnimationPhaseTabs(
+    phase: Phase,
+    kinds: Map<Phase, String?>,
+    onSelect: (Phase) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        for (each in Phase.entries) {
+            ChoiceChip(each.title + if (kinds[each] != null) " •" else "", phase == each, onClick = { onSelect(each) })
         }
+    }
+}
+
+@Composable
+private fun AnimationMotionChoices(phase: Phase, shown: String?, onSelect: (String?) -> Unit) {
+    Chips(listOf<String?>(null) + if (phase == Phase.Loop) LOOPS else ENTRANCES, shown, ::moveLabel, onSelect)
+}
+
+@Composable
+private fun AnimationLengthControl(
+    state: AnimationLengthState,
+    onChange: (Float) -> Unit,
+    onDone: () -> Unit,
+) {
+    if (state.shown != null) {
+        ValueSlider(
+            if (state.phase == Phase.Loop) "One lap" else "Length",
+            state.length.coerceAtMost(state.maximum),
+            0.1f..state.maximum,
+            { "%.1fs".format(it) },
+            onChange = onChange,
+            onDone = onDone,
+        )
     }
 }
 

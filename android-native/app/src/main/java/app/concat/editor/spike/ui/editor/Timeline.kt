@@ -4,6 +4,7 @@
 package app.concat.editor.spike.ui.editor
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FloatExponentialDecaySpec
 import androidx.compose.animation.core.animateDecay
 import androidx.compose.foundation.Canvas
@@ -107,56 +108,66 @@ internal fun Timeline(
     modifier: Modifier = Modifier,
     cover: ImageBitmap? = null,
 ) {
-    val view = presentation.view
-    val projectPath = presentation.projectPath
-    val media = presentation.media
-    val position = presentation.position
+    val interaction = rememberTimelineInteraction(presentation, actions)
+    val glyphs = rememberTimelineGlyphs()
     val selected = presentation.selected
-    val onScrub = actions.onScrub
-    val onSelect = actions.onSelect
-    val onMove = actions.onMove
-    val onTrim = actions.onTrim
-    val onAddMedia = actions.onAddMedia
-    val onTransition = actions.onTransition
-    val onMuteTrack = actions.onMuteTrack
+    LaunchedEffect(selected) {
+        if (selected != null) {
+            interaction.selection.snapTo(0f)
+            interaction.selection.animateTo(1f, Motion.tweenShort())
+        }
+    }
+    TimelineCanvas(modifier, presentation, interaction, glyphs)
+}
+
+private data class TimelineInteractionState(
+    val gesture: TimelineGestureContext,
+    val pxPerSecond: Float,
+    val drag: DragPreview?,
+    val scrollY: Float?,
+    val selection: Animatable<Float, AnimationVector1D>,
+    val knob: Animatable<Float, AnimationVector1D>,
+    val measurer: TextMeasurer,
+)
+
+@Composable
+private fun rememberTimelineInteraction(
+    presentation: TimelinePresentation,
+    actions: TimelineCallbacks,
+): TimelineInteractionState {
     val pxPerSecondState = remember { mutableFloatStateOf(0f) }
     var pxPerSecond by pxPerSecondState
     val dragState = remember { mutableStateOf<DragPreview?>(null) }
     var drag by dragState
     val flingState = remember { mutableStateOf<Job?>(null) }
-    var fling by flingState
     /** Vertical scroll when the lanes overflow; null follows the main track. */
     val scrollYState = remember { mutableStateOf<Float?>(null) }
     var scrollY by scrollYState
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
     val measurer = rememberTextMeasurer()
-    val currentView = rememberUpdatedState(view)
-    val currentPosition = rememberUpdatedState(position)
-    val currentSelected = rememberUpdatedState(selected)
-    val scrub = rememberUpdatedState(onScrub)
-    val choose = rememberUpdatedState(onSelect)
-    val move = rememberUpdatedState(onMove)
-    val trim = rememberUpdatedState(onTrim)
-    val addMedia = rememberUpdatedState(onAddMedia)
-    val transition = rememberUpdatedState(onTransition)
-    val muteTrack = rememberUpdatedState(onMuteTrack)
-
-    // The selection fades in; the playhead's knob springs while a finger is down.
+    val currentView = rememberUpdatedState(presentation.view)
+    val currentPosition = rememberUpdatedState(presentation.position)
+    val currentSelected = rememberUpdatedState(presentation.selected)
+    val scrub = rememberUpdatedState(actions.onScrub)
+    val choose = rememberUpdatedState(actions.onSelect)
+    val move = rememberUpdatedState(actions.onMove)
+    val trim = rememberUpdatedState(actions.onTrim)
+    val addMedia = rememberUpdatedState(actions.onAddMedia)
+    val transition = rememberUpdatedState(actions.onTransition)
+    val muteTrack = rememberUpdatedState(actions.onMuteTrack)
     val selection = remember { Animatable(1f) }
-    LaunchedEffect(selected) {
-        if (selected != null) {
-            selection.snapTo(0f)
-            selection.animateTo(1f, Motion.tweenShort())
-        }
-    }
     val knob = remember { Animatable(0f) }
 
     val gesture = TimelineGestureContext(
         pxPerSecondState, dragState, flingState, scrollYState, scope, haptics, knob,
         currentView, currentPosition, currentSelected, scrub, choose, move, trim, addMedia, transition, muteTrack,
     )
-    val glyphs = TimelineGlyphs(
+    return TimelineInteractionState(gesture, pxPerSecond, drag, scrollY, selection, knob, measurer)
+}
+
+@Composable
+private fun rememberTimelineGlyphs() = TimelineGlyphs(
         text = rememberVectorPainter(ConcatIcons.TextMark),
         music = rememberVectorPainter(ConcatIcons.Music),
         image = rememberVectorPainter(ConcatIcons.Image),
@@ -170,24 +181,31 @@ internal fun Timeline(
         shapes = rememberVectorPainter(ConcatIcons.Shapes),
     )
 
+@Composable
+private fun TimelineCanvas(
+    modifier: Modifier,
+    presentation: TimelinePresentation,
+    interaction: TimelineInteractionState,
+    glyphs: TimelineGlyphs,
+) {
     Canvas(
         modifier
             .fillMaxSize()
-            .timelinePointerInput(gesture),
+            .timelinePointerInput(interaction.gesture),
     ) {
         drawTimelineFrame(
             TimelineFrameState(
-                view = view,
-                projectPath = projectPath,
-                media = media,
-                position = position,
-                selected = selected,
-                pxPerSecond = pxPerSecond,
-                scrollY = scrollY,
-                drag = drag,
-                selection = selection.value,
-                knob = knob.value,
-                measurer = measurer,
+                view = presentation.view,
+                projectPath = presentation.projectPath,
+                media = presentation.media,
+                position = presentation.position,
+                selected = presentation.selected,
+                pxPerSecond = interaction.pxPerSecond,
+                scrollY = interaction.scrollY,
+                drag = interaction.drag,
+                selection = interaction.selection.value,
+                knob = interaction.knob.value,
+                measurer = interaction.measurer,
                 glyphs = glyphs,
             ),
         )

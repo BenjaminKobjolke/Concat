@@ -84,11 +84,8 @@ internal fun ColumnScope.EditorScreenTimelineAndToolbar(
 
                 if (!imeVisible) {
                     val tools = toolsFor(
-                        selected = selected,
-                        menu = menu,
-                        mainTrackId = mainTrackId,
-                        panel = panel,
-                        actions = ToolActions(
+                        ToolbarSelection(selected, menu, mainTrackId, panel),
+                        ToolActions(
                             openPanel = { panel = if (panel == it) null else it },
                             setMenu = { menu = it },
                             deselect = {

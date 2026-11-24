@@ -141,25 +141,27 @@ internal fun EditorPreviewArea(
                 Box(Modifier.size(w, h).background(Color.Black)) {
                     PreviewSurface(model, Modifier.fillMaxSize())
                     PreviewOverlay(
-                        view = view,
-                        position = ui.position,
-                        selected = if (inlineEdit != null) null else ui.selected,
-                        mainTrackId = mainTrackId,
-                        bounds = ui.bounds,
-                        actions = PreviewOverlayActions(
-                            onSelect = actions.onSelectClip,
-                            onCommit = { id, p -> model.setTransform(id, p.scale, p.offsetX, p.offsetY, p.rotation) },
-                            onEditText = {
-                                model.pause()
-                                actions.onInlineEdit(it)
-                            },
+                        state = PreviewOverlayState(
+                            view = view,
+                            position = ui.position,
+                            selected = if (inlineEdit != null) null else ui.selected,
+                            mainTrackId = mainTrackId,
+                            bounds = ui.bounds,
+                            actions = PreviewOverlayActions(
+                                onSelect = actions.onSelectClip,
+                                onCommit = { id, p -> model.setTransform(id, p.scale, p.offsetX, p.offsetY, p.rotation) },
+                                onEditText = {
+                                    model.pause()
+                                    actions.onInlineEdit(it)
+                                },
+                            ),
                         ),
                     )
                     inlineEdit?.let { id ->
                         view.clip(id)?.let { clip ->
                             InlineTextEditor(clip, w, h, onDone = { content ->
                                 val style = clip.text
-                                model.saveText(
+                                model.saveEditorText(
                                     clip.id, content,
                                     style?.optDouble("fontSize", 0.07) ?: 0.07,
                                     style?.optString("color", "#ffffff") ?: "#ffffff",

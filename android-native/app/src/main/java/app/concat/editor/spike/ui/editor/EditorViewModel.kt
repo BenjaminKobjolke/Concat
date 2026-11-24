@@ -246,13 +246,6 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    /**
-     * One link of a chain changed as a slider moves: the newest whole chain
-     * wins, so a drag sends only what the engine can keep up with.
-     */
-    fun saveText(clipId: String?, content: String, fontSize: Double, color: String, fontWeight: Double? = null) =
-        saveEditorText(clipId, content, fontSize, color, fontWeight)
-
     fun import(uris: List<Uri>, audio: Boolean) = importEditorMedia(uris, audio)
 
     fun importOverlay(uris: List<Uri>) = importEditorOverlays(uris)

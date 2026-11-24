@@ -65,27 +65,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: String? = null) {
     val application = LocalContext.current.applicationContext as Application
-    val model: EditorViewModel = viewModel(
-        key = "$path#$session",
-        factory = viewModelFactory { initializer { EditorViewModel(application, path) } },
-    )
-    // The panels' own models, one each per open project: their jobs outlive the panel.
-    val captions: CaptionsViewModel = viewModel(
-        key = "$path#$session#captions",
-        factory = viewModelFactory { initializer { CaptionsViewModel(application, path) } },
-    )
-    val speech: SpeechViewModel = viewModel(
-        key = "$path#$session#speech",
-        factory = viewModelFactory { initializer { SpeechViewModel(application, path) } },
-    )
-    val voiceover: VoiceoverViewModel = viewModel(
-        key = "$path#$session#voiceover",
-        factory = viewModelFactory { initializer { VoiceoverViewModel(application) } },
-    )
-    val catalogue: CatalogueViewModel = viewModel(
-        key = "catalogue",
-        factory = viewModelFactory { initializer { CatalogueViewModel(application) } },
-    )
+    val models = rememberEditorScreenModels(application, path, session)
+    val model = models.model
     val ui by model.ui.collectAsStateWithLifecycle()
     val menuState = remember { mutableStateOf(Menu.Root) }
     var menu by menuState
@@ -104,7 +85,11 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
 
     // Pause when the app is covered; save when it is no longer seen.
     EditorLifecycleEffects(model)
-    BackHandler(onBack = editorBackAction(model, menuState, panelState, fullscreenState, inlineEditState, ui.selected != null, onClosed))
+    val transient = EditorScreenTransientState(
+        menuState, panelState, catalogueShelfState, catalogueAdjustState,
+        exportingState, renamingState, fullscreenState, inlineEditState,
+    )
+    BackHandler(onBack = editorBackAction(model, transient, ui.selected != null, onClosed))
 
     val pickVisual = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(50)) { uris ->
         model.import(uris, audio = false)
@@ -137,12 +122,9 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
 
     EditorScreenContent(
         EditorScreenContentContext(
-            models = EditorScreenModels(application, path, model, captions, speech, voiceover, catalogue),
+            models = models,
             ui = ui,
-            transient = EditorScreenTransientState(
-                menuState, panelState, catalogueShelfState, catalogueAdjustState,
-                exportingState, renamingState, fullscreenState, inlineEditState,
-            ),
+            transient = transient,
             actions = EditorScreenActions(onClosed, ::addMedia, {
                 pickOverlay.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
             }, { pickAudio.launch(arrayOf("audio/*")) }, { sound ->
@@ -153,6 +135,32 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
             }),
         ),
     )
+}
+
+@Composable
+private fun rememberEditorScreenModels(application: Application, path: String, session: Int): EditorScreenModels {
+    val model: EditorViewModel = viewModel(
+        key = "$path#$session",
+        factory = viewModelFactory { initializer { EditorViewModel(application, path) } },
+    )
+    // These jobs outlive their panels, so keep one model of each per open project.
+    val captions: CaptionsViewModel = viewModel(
+        key = "$path#$session#captions",
+        factory = viewModelFactory { initializer { CaptionsViewModel(application, path) } },
+    )
+    val speech: SpeechViewModel = viewModel(
+        key = "$path#$session#speech",
+        factory = viewModelFactory { initializer { SpeechViewModel(application, path) } },
+    )
+    val voiceover: VoiceoverViewModel = viewModel(
+        key = "$path#$session#voiceover",
+        factory = viewModelFactory { initializer { VoiceoverViewModel(application) } },
+    )
+    val catalogue: CatalogueViewModel = viewModel(
+        key = "catalogue",
+        factory = viewModelFactory { initializer { CatalogueViewModel(application) } },
+    )
+    return EditorScreenModels(application, path, model, captions, speech, voiceover, catalogue)
 }
 
 private fun initialEditorPanel(startTool: String?): Panel? = when (startTool) {
@@ -179,19 +187,16 @@ private fun EditorLifecycleEffects(model: EditorViewModel) {
 
 private fun editorBackAction(
     model: EditorViewModel,
-    menu: androidx.compose.runtime.MutableState<Menu>,
-    panel: androidx.compose.runtime.MutableState<Panel?>,
-    fullscreen: androidx.compose.runtime.MutableState<Boolean>,
-    inlineEdit: androidx.compose.runtime.MutableState<String?>,
+    transient: EditorScreenTransientState,
     hasSelection: Boolean,
     onClosed: () -> Unit,
 ): () -> Unit = {
     when {
-        inlineEdit.value != null -> inlineEdit.value = null
-        fullscreen.value -> fullscreen.value = false
-        panel.value != null -> panel.value = null
+        transient.inlineEdit.value != null -> transient.inlineEdit.value = null
+        transient.fullscreen.value -> transient.fullscreen.value = false
+        transient.panel.value != null -> transient.panel.value = null
         hasSelection -> model.select(null)
-        menu.value != Menu.Root -> menu.value = Menu.Root
+        transient.menu.value != Menu.Root -> transient.menu.value = Menu.Root
         else -> model.close(onClosed)
     }
 }
