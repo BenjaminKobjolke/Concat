@@ -18,11 +18,12 @@ internal object ProjectViewParser {
             height = video?.optInt("height") ?: settings.optInt("height", 1920),
             rateNum = video?.optLong("rateNum") ?: settings.optLong("rateNum", 30),
             rateDen = (video?.optLong("rateDen") ?: settings.optLong("rateDen", 1)).coerceAtLeast(1),
+            cover = project.optJSONObject("cover"),
             canUndo = json.optBoolean("canUndo"),
             canRedo = json.optBoolean("canRedo"),
             media = (project.optJSONArray("media") ?: JSONArray()).objects().map(::mediaItem),
             tracks = (timeline.optJSONArray("tracks") ?: JSONArray()).objects().map {
-                Track(it.optString("id"), it.optBoolean("visible", true), it.optBoolean("muted"))
+                Track(it.optString("id"), it.optBoolean("visible", true), it.optBoolean("muted"), it.optJSONObject("captions"))
             },
             clips = (timeline.optJSONArray("clips") ?: JSONArray()).objects().map(::clip).sortedBy { it.start },
             createdId = json.optString("createdId").ifEmpty { null },
@@ -75,6 +76,9 @@ internal object ProjectViewParser {
         fadeIn = json.optDouble("fadeIn", 0.0).finiteOr(0.0),
         fadeOut = json.optDouble("fadeOut", 0.0).finiteOr(0.0),
         keys = keysOf(json.optJSONArray("keys")),
+        crop = json.optJSONObject("crop"),
+        masks = json.optJSONArray("masks")?.let { list -> (0 until list.length()).mapNotNull { index -> list.optJSONObject(index) } }.orEmpty(),
+        motion = json.optJSONObject("motion"),
     )
 
     private fun clipKind(value: String) = when (value) {
@@ -82,6 +86,7 @@ internal object ProjectViewParser {
         "audio" -> ClipKind.Audio
         "image" -> ClipKind.Image
         "text" -> ClipKind.Text
+        "shape" -> ClipKind.Shape
         "layer" -> ClipKind.Layer
         "soundLayer" -> ClipKind.SoundLayer
         "transition" -> ClipKind.Transition

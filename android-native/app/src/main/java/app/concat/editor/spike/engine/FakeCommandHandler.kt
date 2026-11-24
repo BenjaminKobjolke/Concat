@@ -76,6 +76,19 @@ private fun Session.clipList() = clips.objectsList()
                     .put("volume", 1.0).put("speed", 1.0).put("text", style))
                 id
             }
+            "addShapeClip" -> {
+                val start = max(0.0, command.getDouble("start"))
+                val length = command.optDouble("duration", 3.0).takeIf { !it.isNaN() } ?: 3.0
+                val style = command.optJSONObject("style") ?: JSONObject().put("kind", "square")
+                val track = command.optString("trackId").takeIf { !command.isNull("trackId") && it.isNotEmpty() }
+                    ?: firstFreeAbove(start, start + length)
+                val id = mint("c")
+                clips.put(JSONObject().put("id", id).put("trackId", track).put("mediaId", "")
+                    .put("name", command.optString("name").ifBlank { style.optString("kind") })
+                    .put("kind", "shape").put("start", start).put("duration", length).put("sourceStart", 0.0)
+                    .put("volume", 1.0).put("speed", 1.0).put("shape", style))
+                id
+            }
             "splitClips" -> {
                 val time = command.getDouble("time")
                 val ids = command.clipIds()
@@ -83,7 +96,7 @@ private fun Session.clipList() = clips.objectsList()
                 for (id in ids) {
                     val clip = clip(id) ?: continue
                     val start = clip.getDouble("start")
-                    if (time <= start + MIN || time >= clip.end() - MIN) continue
+                    if (time <= start + FakeEngineBridge.MIN || time >= clip.end() - FakeEngineBridge.MIN) continue
                     val tail = JSONObject(clip.toString()).put("id", mint("c")).put("start", time)
                         .put("duration", clip.end() - time)
                         .put("sourceStart", clip.getDouble("sourceStart") + (time - start) * clip.getDouble("speed"))
@@ -138,7 +151,7 @@ private fun Session.clipList() = clips.objectsList()
                 val speed = command.getDouble("speed").coerceIn(0.0625, 16.0)
                 val old = clip.getDouble("speed")
                 val end = clip.end()
-                val length = max(MIN, clip.getDouble("duration") * old / speed)
+                val length = max(FakeEngineBridge.MIN, clip.getDouble("duration") * old / speed)
                 clip.put("speed", speed).put("duration", length)
                 if (command.optBoolean("ripple")) shift(clip.getString("trackId"), end, clip.end() - end, except = clip.getString("id"))
                 null
@@ -149,13 +162,13 @@ private fun Session.clipList() = clips.objectsList()
                 val end = clip.end()
                 val delta = command.getDouble("delta")
                 if (command.getString("edge") == "start") {
-                    val cut = delta.coerceIn(-clip.getDouble("sourceStart") / clip.getDouble("speed"), clip.getDouble("duration") - MIN)
+                    val cut = delta.coerceIn(-clip.getDouble("sourceStart") / clip.getDouble("speed"), clip.getDouble("duration") - FakeEngineBridge.MIN)
                     clip.put("sourceStart", clip.getDouble("sourceStart") + cut * clip.getDouble("speed"))
                         .put("duration", clip.getDouble("duration") - cut)
                     if (ripple) shift(clip.getString("trackId"), end, -cut, except = clip.getString("id"))
                     else clip.put("start", clip.getDouble("start") + cut)
                 } else {
-                    clip.put("duration", max(MIN, clip.getDouble("duration") + delta))
+                    clip.put("duration", max(FakeEngineBridge.MIN, clip.getDouble("duration") + delta))
                     if (ripple) shift(clip.getString("trackId"), end, clip.end() - end, except = clip.getString("id"))
                 }
                 null
@@ -179,6 +192,29 @@ private fun Session.clipList() = clips.objectsList()
                 val kept = (clip.optJSONArray("keys") ?: JSONArray()).objectsList()
                     .filterNot { it.optString("property") == property && kotlin.math.abs(it.optDouble("at") - at) < 0.002 }
                 clip.put("keys", JSONArray().apply { kept.forEach { put(it) } })
+                null
+            }
+            "setCaptionLook" -> {
+                val trackId = command.getString("trackId")
+                val look = command.optJSONObject("look")
+                val lane = tracks.objectsList().firstOrNull { it.optString("id") == trackId }
+                if (lane != null) {
+                    if (look == null) lane.remove("captions") else lane.put("captions", JSONObject(look.toString()))
+                    if (look != null) {
+                        for (clip in clipList().filter { it.optString("trackId") == trackId && it.optString("kind") == "text" }) {
+                            val old = clip.optJSONObject("text") ?: JSONObject()
+                            val style = JSONObject(look.optJSONObject("style")?.toString() ?: "{}")
+                                .put("content", old.optString("content")).apply { old.optJSONArray("runs")?.let { put("runs", it) } }
+                            clip.put("text", style).put("offsetY", look.optDouble("offsetY", 0.0))
+                        }
+                    }
+                }
+                null
+            }
+            "setCover" -> {
+                val cover = command.optJSONObject("cover")
+                if (cover == null) session.project.remove("cover")
+                else session.project.put("cover", JSONObject(cover.toString()).apply { if (has("time")) put("time", max(0.0, getDouble("time"))) })
                 null
             }
             "setTimelineBackground" -> {

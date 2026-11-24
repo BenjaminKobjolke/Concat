@@ -40,6 +40,7 @@ import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import app.concat.editor.spike.api.Clip
+import app.concat.editor.spike.api.ClipBounds
 import app.concat.editor.spike.api.ClipKind
 import app.concat.editor.spike.api.ProjectView
 import app.concat.editor.spike.ui.icons.ConcatIcons
@@ -59,6 +60,7 @@ private data class PreviewGestureContext(
     val view: State<ProjectView>,
     val position: State<Double>,
     val selected: State<String?>,
+    val bounds: State<Map<String, ClipBounds>>,
     val mainTrackId: String?,
     val live: MutableState<Pair<String, Placement>?>,
     val guides: MutableState<Pair<Boolean, Boolean>>,
@@ -78,6 +80,7 @@ private data class PreviewDrawing(
     val view: ProjectView,
     val position: Double,
     val selected: String?,
+    val bounds: Map<String, ClipBounds>,
     val live: Pair<String, Placement>?,
     val moving: Boolean,
     val guides: Pair<Boolean, Boolean>,
@@ -105,6 +108,7 @@ internal fun PreviewOverlay(
     position: Double,
     selected: String?,
     mainTrackId: String?,
+    bounds: Map<String, ClipBounds>,
     actions: PreviewOverlayActions,
     modifier: Modifier = Modifier,
 ) {
@@ -118,6 +122,7 @@ internal fun PreviewOverlay(
     val currentView = rememberUpdatedState(view)
     val currentPosition = rememberUpdatedState(position)
     val currentSelected = rememberUpdatedState(selected)
+    val currentBounds = rememberUpdatedState(bounds)
     val select = rememberUpdatedState(actions.onSelect)
     val commit = rememberUpdatedState(actions.onCommit)
     val editText = rememberUpdatedState(actions.onEditText)
@@ -133,14 +138,14 @@ internal fun PreviewOverlay(
 
     val lastTapState = remember { mutableStateOf(Pair("", 0L)) }
     val gestureContext = PreviewGestureContext(
-        currentView, currentPosition, currentSelected, mainTrackId, liveState, guidesState,
+        currentView, currentPosition, currentSelected, currentBounds, mainTrackId, liveState, guidesState,
         movingState, lastTapState, select, commit, editText, haptics,
     )
 
     Canvas(
         modifier.fillMaxSize().previewGestures(gestureContext),
     ) {
-        drawPreviewOverlay(PreviewDrawing(view, position, selected, live, moving, guides, appear.value, rotateGlyph))
+        drawPreviewOverlay(PreviewDrawing(view, position, selected, bounds, live, moving, guides, appear.value, rotateGlyph))
     }
 }
 
@@ -182,12 +187,12 @@ private fun resolvePreviewGestureTarget(
     val view = context.view.value
     val position = context.position.value
     val chosen = view.clip(context.selected.value)?.takeIf { it.placeable && position >= it.start && position < it.end }
-    val hit = previewHitTest(view, position, context.mainTrackId, point, frame)
+    val hit = previewHitTest(view, position, context.mainTrackId, point, frame, context.bounds.value)
     val over = hit?.takeIf { it.id != chosen?.id && it.trackId != context.mainTrackId }
     var grip = Grip.None
     if (chosen != null) {
         val placement = context.live.value?.takeIf { it.first == chosen.id }?.second ?: Placement.of(chosen)
-        val box = boxOf(view, chosen, placement, frame)
+        val box = boxOf(view, chosen, placement, frame, context.bounds.value)
         grip = when {
             box.corners.any { (it - point).getDistance() < handleReach } -> Grip.Corner
             over == null && box.contains(point, 6f) -> Grip.Body
@@ -236,8 +241,8 @@ private suspend fun AwaitPointerEventScope.awaitPreviewDrag(
     snapPx: Float,
 ): PreviewDragResult {
     val view = context.view.value
-    val startBox = boxOf(view, clip, start, frame)
-    val state = PreviewDragState(clip, grip, down, frame, start, startBox, down.position - startBox.centre)
+    val startBox = boxOf(view, clip, start, frame, context.bounds.value)
+    val state = PreviewDragState(clip, grip, down, frame, start, startBox, down.position - startBox.anchor)
     while (true) {
         val event = awaitPointerEvent()
         if (event.changes.none { it.pressed }) break
@@ -264,17 +269,17 @@ private fun nextPreviewPlacement(
     val centre: Offset
     if (state.grip == Grip.Corner && !state.twoFingers) {
         val change = event.changes.firstOrNull { it.id == state.down.id } ?: return null
-        val from = state.down.position - state.startBox.centre
-        val to = change.position - state.startBox.centre
+        val from = state.down.position - state.startBox.anchor
+        val to = change.position - state.startBox.anchor
         scale = (state.start.scale * to.getDistance() / max(1f, from.getDistance())).coerceIn(0.05, 8.0)
         rotation = state.start.rotation + (atan2(to.y, to.x) - atan2(from.y, from.x)) * 180.0 / PI
-        centre = state.startBox.centre
+        centre = state.startBox.anchor
         state.travelled = max(state.travelled, (change.position - state.down.position).getDistance())
     } else if (pressed.size > 1) {
         scale = (state.now.scale * event.calculateZoom()).coerceIn(0.05, 8.0)
         rotation = state.now.rotation + event.calculateRotation()
         val pan = event.calculatePan()
-        centre = boxOf(context.view.value, state.clip, state.now, state.frame).centre + pan
+        centre = boxOf(context.view.value, state.clip, state.now, state.frame, context.bounds.value).anchor + pan
         state.travelled += pan.getDistance() + 20f
     } else {
         val change = event.changes.firstOrNull { it.id == state.down.id } ?: pressed.first()
@@ -334,7 +339,7 @@ private fun finishPreviewGesture(
     }
 }
 
-private fun previewHitTest(view: ProjectView, position: Double, mainTrackId: String?, point: Offset, frame: Size): Clip? {
+private fun previewHitTest(view: ProjectView, position: Double, mainTrackId: String?, point: Offset, frame: Size, bounds: Map<String, ClipBounds>): Clip? {
     val order = view.tracks.map { it.id }
     return view.clips.filter { it.placeable && position >= it.start && position < it.end }
         .sortedWith(
@@ -342,7 +347,7 @@ private fun previewHitTest(view: ProjectView, position: Double, mainTrackId: Str
                 .thenByDescending { it.kind == ClipKind.Text }
                 .thenByDescending { order.indexOf(it.trackId) },
         )
-        .firstOrNull { boxOf(view, it, Placement.of(it), frame).contains(point, 8f) }
+        .firstOrNull { boxOf(view, it, Placement.of(it), frame, bounds).contains(point, 8f) }
 }
 
 private fun DrawScope.drawPreviewOverlay(drawing: PreviewDrawing) {
@@ -352,7 +357,7 @@ private fun DrawScope.drawPreviewOverlay(drawing: PreviewDrawing) {
         it.placeable && drawing.position >= it.start && drawing.position < it.end
     } ?: return
     val placement = drawing.live?.takeIf { it.first == clip.id }?.second ?: Placement.of(clip)
-    val box = boxOf(drawing.view, clip, placement, frame)
+    val box = boxOf(drawing.view, clip, placement, frame, drawing.bounds)
     drawPreviewSelection(box, drawing.alpha, drawing.rotateGlyph)
 }
 

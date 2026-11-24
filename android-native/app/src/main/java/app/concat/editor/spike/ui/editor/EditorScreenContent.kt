@@ -82,6 +82,8 @@ internal data class EditorScreenActions(
     val addMedia: () -> Unit,
     val addOverlay: () -> Unit,
     val addAudio: () -> Unit,
+    val replace: (Boolean) -> Unit,
+    val onPickCover: () -> Unit,
 )
 
 internal data class EditorScreenContentContext(

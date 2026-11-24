@@ -16,8 +16,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal typealias Session = FakeEngineBridge.Session
-
 internal fun FakeEngineBridge.setVideo(session: Session, video: JSONObject): String? {
         val width = video.optInt("width")
         val height = video.optInt("height")
@@ -170,6 +168,10 @@ internal fun FakeEngineBridge.placeCaptions(session: Session, request: JSONObjec
                 .put("volume", 1.0).put("speed", 1.0).put("text", style).put("offsetY", offsetY))
             last = id
         }
+        session.tracks.objectsList().firstOrNull { it.optString("id") == track }?.put(
+            "captions",
+            JSONObject().put("style", JSONObject().put("fontSize", size).put("color", "#ffffff")).put("offsetY", offsetY),
+        )
         return last
     }
 

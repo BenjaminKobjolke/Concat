@@ -45,6 +45,12 @@ class FakeEngineBridge(context: Context) : EngineBridge {
     internal val commands = FakeCommandHandler(::mint)
     internal val cancelled = HashSet<String>()
 
+    /** The Stickers page's ids, in the engine's order (ShapeStyle::CARDS). */
+    internal val stickerIds = listOf(
+        "square", "rounded", "circle", "ring", "triangle", "pentagon", "polygon", "star", "heart",
+        "pill", "parallelogram", "trapezoid", "line", "arrow", "double-arrow",
+    )
+
     internal class Session(val path: String, var view: JSONObject) {
         val undo = ArrayDeque<String>()
         val redo = ArrayDeque<String>()
@@ -91,6 +97,7 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         "media.filmstrip" -> FakePictures.filmstrip(request)
         "media.peaks" -> FakePictures.peaks(request, mediaDuration(request.getString("file")))
         "preview.frame" -> FakeFrameRequests.previewFrame(request, sessions, DOCUMENT)
+        "project.cover" -> projectCover(request)
         "project.close" -> {
             val session = session(request)
             if (request.optBoolean("save")) write(session)
@@ -105,12 +112,28 @@ class FakeEngineBridge(context: Context) : EngineBridge {
         "export.cancel" -> JSONObject().also { cancelled += request.getString("job") }
         "catalogue.list" -> FakeCatalogue.list(request.optString("kind").ifEmpty { null })
         "models.list" -> modelsList()
+        "shapes.list" -> JSONArray().apply {
+            for (id in stickerIds) put(JSONObject().put("id", id).put("style", JSONObject().put("kind", id).put("fill", "#ffffff").put("width", 0.35)))
+        }
+        "clips.bounds" -> session(request).let { session -> fakeBounds(session) }
         "models.download" -> modelsDownload(request.getString("kind"), request.getString("id"))
         "models.delete" -> JSONObject().also { setDownloaded(request.getString("id"), false) }
         "captions.transcribe" -> transcribe(request)
         "captions.place" -> session(request).let { session -> edit(session) { placeCaptions(session, request) } }
         "captions.cancel", "speech.cancel" -> JSONObject().also { cancelled += request.getString("job") }
         "speech.speak" -> speak(request)
+        "clips.freeze" -> session(request).let { session -> edit(session) { freeze(session, request) } }
+        "clips.replace" -> session(request).let { session -> edit(session) { replace(session, request) } }
+        "clips.reverse" -> reverse(request)
+        "clips.useReversed" -> session(request).let { session ->
+            edit(session) {
+                // The fake writes no copy: the clip is only marked as shown backwards.
+                val clip = commands.clip(session, request.getString("clipId")) ?: throw Refusal("invalid", "no such clip")
+                clip.put("name", clip.optString("name").removeSuffix(" (reversed)") + " (reversed)")
+                null
+            }
+        }
+        "reverse.cancel" -> JSONObject().also { cancelled += request.getString("job") }
         else -> throw Refusal("invalid", "the in-memory engine does not answer $method")
     }
 

@@ -4,12 +4,15 @@
 package app.concat.editor.spike.ui.editor
 
 import androidx.compose.runtime.Composable
+import android.graphics.Bitmap
+import app.concat.editor.spike.api.ShapeCard
 import app.concat.editor.spike.api.Clip
 import app.concat.editor.spike.api.ProjectView
 
 internal data class EditorPanelActions(
     val onClose: () -> Unit,
     val onOpenCatalogue: (Shelf) -> Unit,
+    val onPickCover: () -> Unit,
 )
 
 internal data class EditorPanelContext(
@@ -20,6 +23,9 @@ internal data class EditorPanelContext(
     val speech: SpeechViewModel,
     val voiceover: VoiceoverViewModel,
     val catalogue: CatalogueViewModel,
+    val stickers: List<ShapeCard>,
+    val cover: Bitmap?,
+    val coverNamed: Boolean,
     val actions: EditorPanelActions,
 )
 
@@ -48,6 +54,18 @@ internal fun EditorPanelContent(panel: Panel?, context: EditorPanelContext) {
         }, onClose = close)
         Panel.Aspect -> context.view?.let { view -> AspectPanel(view, { model.setAspect(it.width, it.height) }, close) }
         Panel.Background -> BackgroundPanel(model::setBackground, close)
+        Panel.Crop -> selected?.let { CropPanel(it, { model.setLook("Crop", it) }, close) }
+        Panel.Mask -> selected?.let { MaskPanel(it, { model.setLook("Mask", it) }, close) }
+        Panel.Animation -> selected?.let { AnimationPanel(it, { model.setLook("Animation", it) }, close) }
+        Panel.Stickers -> StickersPanel(context.stickers, { card -> model.addSticker(card, stickerName(card)) }, close)
+        Panel.Cover -> CoverPanel(
+            context.cover,
+            named = context.coverNamed,
+            onFrame = model::setCoverFrame,
+            onPicture = context.actions.onPickCover,
+            onReset = model::resetCover,
+            onClose = close,
+        )
         Panel.Captions -> CaptionsSheet(context.captions, model, preferClip = selected?.id, onDismiss = close)
         Panel.Speech -> SpeechSheet(context.speech, model, onDismiss = close)
         Panel.Voiceover -> VoiceoverSheet(context.voiceover, model, onDismiss = close)

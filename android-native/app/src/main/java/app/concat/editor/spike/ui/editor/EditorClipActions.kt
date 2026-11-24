@@ -7,6 +7,7 @@ import app.concat.editor.spike.api.AppliedEffect
 import app.concat.editor.spike.api.ClipKind
 import app.concat.editor.spike.api.Commands
 import app.concat.editor.spike.api.ProjectView
+import java.io.File
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.update
 import org.json.JSONArray
@@ -148,6 +149,11 @@ fun EditorViewModel.setOpacity(opacity: Double) {
         val clip = selectedClip() ?: return
         change("Opacity") { apply(Commands.updateClip(clip.id, JSONObject().put("opacity", opacity.coerceIn(0.0, 1.0)))) }
     }
+
+fun EditorViewModel.setLook(label: String, patch: JSONObject) {
+    val clip = selectedClip() ?: return
+    change(label) { apply(Commands.updateClip(clip.id, patch)) }
+}
 
 fun EditorViewModel.setFades(fadeIn: Double, fadeOut: Double) {
         val clip = selectedClip() ?: return

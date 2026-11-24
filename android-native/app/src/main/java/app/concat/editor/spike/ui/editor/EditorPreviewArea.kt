@@ -145,6 +145,7 @@ internal fun EditorPreviewArea(
                         position = ui.position,
                         selected = if (inlineEdit != null) null else ui.selected,
                         mainTrackId = mainTrackId,
+                        bounds = ui.bounds,
                         actions = PreviewOverlayActions(
                             onSelect = actions.onSelectClip,
                             onCommit = { id, p -> model.setTransform(id, p.scale, p.offsetX, p.offsetY, p.rotation) },

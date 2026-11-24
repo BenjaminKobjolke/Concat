@@ -105,6 +105,7 @@ internal fun Timeline(
     presentation: TimelinePresentation,
     actions: TimelineCallbacks,
     modifier: Modifier = Modifier,
+    cover: ImageBitmap? = null,
 ) {
     val view = presentation.view
     val projectPath = presentation.projectPath

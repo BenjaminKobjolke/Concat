@@ -6,6 +6,7 @@ package app.concat.editor.spike.ui.editor
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import app.concat.editor.spike.api.Clip
+import app.concat.editor.spike.api.ClipBounds
 import app.concat.editor.spike.api.ClipKind
 import app.concat.editor.spike.api.ProjectView
 import kotlin.math.PI
@@ -21,7 +22,7 @@ data class Placement(val scale: Double, val offsetX: Double, val offsetY: Double
 }
 
 /** A clip's box on the frame, in pixels of it: centre, size, and turn. */
-internal class Box(val centre: Offset, val width: Float, val height: Float, val degrees: Float) {
+internal class Box(val centre: Offset, val width: Float, val height: Float, val degrees: Float, val anchor: Offset = centre) {
     fun contains(point: Offset, slack: Float = 0f): Boolean {
         val local = unrotate(point)
         return abs(local.x) <= width / 2 + slack && abs(local.y) <= height / 2 + slack
@@ -49,23 +50,42 @@ internal class Box(val centre: Offset, val width: Float, val height: Float, val 
  * lines at its size, a picture fitted to the frame (by its own aspect when
  * the probe found one).
  */
-internal fun boxOf(view: ProjectView, clip: Clip, placement: Placement, frame: Size): Box {
+internal fun boxOf(view: ProjectView, clip: Clip, placement: Placement, frame: Size, bounds: Map<String, ClipBounds> = emptyMap()): Box {
     val centre = Offset(
         frame.width / 2f + (placement.offsetX * frame.width).toFloat(),
         frame.height / 2f + (placement.offsetY * frame.height).toFloat(),
     )
     val scale = placement.scale.toFloat()
+    val turn = placement.rotation.toFloat()
+    val painted = bounds[clip.id]?.takeIf { clip.kind == ClipKind.Text || clip.kind == ClipKind.Shape }
+    if (painted != null) {
+        val px = (painted.offsetX * frame.width).toFloat() * scale
+        val py = (painted.offsetY * frame.height).toFloat() * scale
+        val radians = turn * PI.toFloat() / 180f
+        val shift = Offset(px * cos(radians) - py * sin(radians), px * sin(radians) + py * cos(radians))
+        return Box(
+            centre + shift,
+            (painted.width * frame.width).toFloat() * scale,
+            (painted.height * frame.height).toFloat() * scale,
+            turn,
+            anchor = centre,
+        )
+    }
     if (clip.kind == ClipKind.Text) {
         val style = clip.text
         val font = ((style?.optDouble("fontSize", 0.09) ?: 0.09).toFloat() * frame.height * scale).coerceAtLeast(6f)
         val lines = (style?.optString("content") ?: clip.name).lines().ifEmpty { listOf("") }
         val longest = lines.maxOf { it.length }.coerceAtLeast(1)
         val pad = font * 0.3f
-        return Box(centre, longest * font * 0.5f + pad * 2, lines.size * font * 1.2f + pad * 2, placement.rotation.toFloat())
+        return Box(centre, longest * font * 0.5f + pad * 2, lines.size * font * 1.2f + pad * 2, turn)
+    }
+    if (clip.kind == ClipKind.Shape) {
+        val side = 0.35f * frame.height * scale
+        return Box(centre, side, side, turn)
     }
     val media = view.mediaOf(clip)
     val aspect = if (media != null && media.width > 0 && media.height > 0) media.width.toFloat() / media.height else frame.width / frame.height
     val fitted = if (aspect > frame.width / frame.height) Size(frame.width, frame.width / aspect) else Size(frame.height * aspect, frame.height)
-    return Box(centre, fitted.width * scale, fitted.height * scale, placement.rotation.toFloat())
+    return Box(centre, fitted.width * scale, fitted.height * scale, turn)
 }
 

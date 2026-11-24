@@ -50,7 +50,7 @@ internal fun EditorViewModel.importEditorOverlays(uris: List<Uri>) {
     }
 }
 
-private fun EditorViewModel.copyPickedFile(uri: Uri): File {
+internal fun EditorViewModel.copyPickedFile(uri: Uri): File {
     val resolver = getApplication<Application>().contentResolver
     var name = "picked-${System.currentTimeMillis()}"
     resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {

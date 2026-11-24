@@ -26,13 +26,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -138,9 +141,19 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
     val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         model.import(uris, audio = true)
     }
+    val pickReplacement = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        model.replace(uri)
+    }
+    val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        model.setCoverPicture(uri)
+    }
+    val pickReplacementSound = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        model.replace(uri)
+    }
     fun addMedia() = pickVisual.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
 
     val view = ui.view
+    val coverImage = remember(ui.cover) { ui.cover?.asImageBitmap() }
     val selected = view?.clip(ui.selected)
     // A clip's panels go when the clip does.
     LaunchedEffect(selected?.id) {
@@ -158,7 +171,12 @@ fun EditorScreen(path: String, session: Int, onClosed: () -> Unit, startTool: St
             ),
             actions = EditorScreenActions(onClosed, ::addMedia, {
                 pickOverlay.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-            }, { pickAudio.launch(arrayOf("audio/*")) }),
+            }, { pickAudio.launch(arrayOf("audio/*")) }, { sound ->
+                if (sound) pickReplacementSound.launch(arrayOf("audio/*"))
+                else pickReplacement.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+            }, {
+                pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }),
         ),
     )
 }

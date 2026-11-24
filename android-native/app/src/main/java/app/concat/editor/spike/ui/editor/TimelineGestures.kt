@@ -36,5 +36,5 @@ internal data class TimelineGestureContext(
 
 
 internal fun Modifier.timelinePointerInput(input: TimelineGestureContext) = pointerInput(Unit) {
-    TimelineGestureController(input).run()
+    with(TimelineGestureController(input)) { run() }
 }

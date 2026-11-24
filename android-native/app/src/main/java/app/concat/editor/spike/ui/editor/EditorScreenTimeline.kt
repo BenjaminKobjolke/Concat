@@ -53,12 +53,14 @@ internal fun ColumnScope.EditorScreenTimelineAndToolbar(
                         model = model,
                         panelContext = EditorPanelContext(
                             view, selected, model, captions, speech, voiceover, catalogue,
+                            ui.stickers, ui.cover, view?.cover != null,
                             EditorPanelActions(
                                 onClose = { panel = null },
                                 onOpenCatalogue = { shelf ->
                                     catalogueAdjust = false
                                     catalogueShelf = shelf
                                 },
+                                onPickCover = actions.onPickCover,
                             ),
                         ),
                     ),
@@ -96,6 +98,8 @@ internal fun ColumnScope.EditorScreenTimelineAndToolbar(
                             addMedia = addMedia,
                             addOverlay = { actions.addOverlay() },
                             addAudio = { actions.addAudio() },
+                            replace = actions.replace,
+                            reversing = ui.reversing,
                             selectMain = { model.selectAtPlayhead(mainTrackId) },
                             split = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)

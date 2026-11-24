@@ -117,6 +117,7 @@ internal fun DrawScope.glyph(painter: VectorPainter, topLeft: Offset, size: Floa
 
 internal fun kindGlyph(glyphs: TimelineGlyphs, clip: Clip): VectorPainter = when (clip.kind) {
     ClipKind.Text -> glyphs.text
+    ClipKind.Shape -> glyphs.shapes
     ClipKind.Audio, ClipKind.SoundLayer -> glyphs.music
     ClipKind.Image -> glyphs.image
     ClipKind.Video -> glyphs.film

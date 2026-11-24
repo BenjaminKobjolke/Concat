@@ -31,10 +31,10 @@ import app.concat.editor.spike.ui.theme.Spacing
 internal enum class Menu { Root, Audio, Text }
 
 /** A tool's options, open above the toolbar. */
-internal enum class Panel { Speed, Volume, Opacity, Fade, TextNew, TextEdit, Effects, Filters, Transitions, Aspect, Background, Captions, Speech, Voiceover }
+internal enum class Panel { Speed, Volume, Opacity, Fade, Crop, Mask, Animation, TextNew, TextEdit, Effects, Filters, Transitions, Aspect, Background, Captions, Speech, Voiceover, Stickers, Cover }
 
 /** The panels that belong to the selected clip, closed when it is let go. */
-internal val CLIP_PANELS = setOf(Panel.Speed, Panel.Volume, Panel.Opacity, Panel.Fade, Panel.TextEdit, Panel.Effects, Panel.Filters)
+internal val CLIP_PANELS = setOf(Panel.Speed, Panel.Volume, Panel.Opacity, Panel.Fade, Panel.Crop, Panel.Mask, Panel.Animation, Panel.TextEdit, Panel.Effects, Panel.Filters)
 
 /** One tool of the bottom toolbar. */
 internal class Tool(val icon: ImageVector, val label: String, val enabled: Boolean = true, val active: Boolean = false, val onClick: () -> Unit)
@@ -97,6 +97,8 @@ internal class ToolActions(
     val addMedia: () -> Unit,
     val addOverlay: () -> Unit,
     val addAudio: () -> Unit,
+    val replace: (Boolean) -> Unit,
+    val reversing: Pair<String, Float>?,
     val selectMain: () -> Unit,
     val split: () -> Unit,
     val catalogue: (Shelf, Boolean) -> Unit,
@@ -115,6 +117,8 @@ private fun menuTools(menu: Menu, panel: Panel?, actions: ToolActions): List<Too
                 Tool(ConcatIcons.Razor, "Edit", onClick = actions.selectMain),
                 Tool(ConcatIcons.Music, "Audio") { actions.setMenu(Menu.Audio) },
                 Tool(ConcatIcons.TextMark, "Text") { actions.setMenu(Menu.Text) },
+                Tool(ConcatIcons.Sticker, "Stickers", active = panel == Panel.Stickers, onClick = open(Panel.Stickers)),
+                Tool(ConcatIcons.Frame, "Cover", active = panel == Panel.Cover, onClick = open(Panel.Cover)),
                 Tool(ConcatIcons.Image, "Overlay", onClick = actions.addOverlay),
                 Tool(ConcatIcons.Sparkle, "Effects", active = panel == Panel.Effects) {
                     actions.selectMain()
@@ -207,6 +211,18 @@ private fun addSelectedClipStateTools(
     val moved = selected.scale != 1.0 || selected.offsetX != 0.0 || selected.offsetY != 0.0 || selected.rotation != 0.0
     with(tools) {
         if (picture) add(Tool(ConcatIcons.FlipH, "Flip", active = selected.flipH, onClick = actions.model::flip))
+        if (selected.placeable) add(Tool(ConcatIcons.Wand, "Animation", active = panel == Panel.Animation, onClick = open(Panel.Animation)))
+        if (picture) add(Tool(ConcatIcons.Frame, "Crop", active = panel == Panel.Crop, onClick = open(Panel.Crop)))
+        if (picture) add(Tool(ConcatIcons.MaskCircle, "Mask", active = panel == Panel.Mask, onClick = open(Panel.Mask)))
+        if (picture) add(Tool(ConcatIcons.Pause, "Freeze", onClick = actions.model::freeze))
+        if (selected.kind == ClipKind.Video || selected.kind == ClipKind.Audio) {
+            val running = actions.reversing
+            when {
+                running?.first == selected.id -> add(Tool(ConcatIcons.Reverse, "Reversing ${(running.second * 100).toInt()}%", active = true, onClick = actions.model::cancelReverse))
+                else -> add(Tool(ConcatIcons.Reverse, "Reverse", enabled = running == null, onClick = actions.model::reverse))
+            }
+        }
+        if (picture || selected.kind == ClipKind.Audio) add(Tool(ConcatIcons.Import, "Replace") { actions.replace(selected.kind == ClipKind.Audio) })
         if (selected.kind == ClipKind.Video) {
             add(Tool(if (selected.muted) ConcatIcons.VolumeOff else ConcatIcons.Volume, if (selected.muted) "Unmute" else "Mute", onClick = actions.model::toggleMute))
         }

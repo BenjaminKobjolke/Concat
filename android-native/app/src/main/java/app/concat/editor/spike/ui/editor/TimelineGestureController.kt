@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import app.concat.editor.spike.api.Clip
 import app.concat.editor.spike.api.ProjectView
+import app.concat.editor.spike.ui.theme.Motion
 import kotlin.math.abs
 import kotlin.math.max
 import kotlinx.coroutines.launch

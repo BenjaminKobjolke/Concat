@@ -4,6 +4,8 @@
 package app.concat.editor.spike.ui.editor
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.OpenableColumns
@@ -12,9 +14,14 @@ import android.view.Surface
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.concat.editor.spike.api.AppliedEffect
+import app.concat.editor.spike.api.ClipBounds
 import app.concat.editor.spike.api.ClipKind
 import app.concat.editor.spike.api.Commands
+import app.concat.editor.spike.api.JobTracker
 import app.concat.editor.spike.api.ProjectView
+import app.concat.editor.spike.api.ShapeCard
+import app.concat.editor.spike.api.errorMessage
+import app.concat.editor.spike.api.wasCancelled
 import app.concat.editor.spike.concat
 import app.concat.editor.spike.engine.PreviewBridge
 import app.concat.editor.spike.export.ExportPreset
@@ -27,6 +34,9 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -41,6 +51,14 @@ data class EditorUi(
     val playing: Boolean = false,
     val busy: Boolean = false,
     val message: String? = null,
+    /** The clip a reverse is being written for, and how far it is (0..1). */
+    val reversing: Pair<String, Float>? = null,
+    /** Each title's and shape's block as the engine painted it, for the transform box. */
+    val bounds: Map<String, ClipBounds> = emptyMap(),
+    /** The Stickers page's cards, once the engine has said them. */
+    val stickers: List<ShapeCard> = emptyList(),
+    /** The cover the project names, painted; none while it names none (the timeline shows its first frame). */
+    val cover: Bitmap? = null,
 )
 
 /**
@@ -53,6 +71,7 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
     internal val app = application.concat
     internal val api = app.api
     private val lifecycleActions by lazy { EditorLifecycleActions(this, app.scope) }
+    internal val reverseActions by lazy { EditorReverseActions(this) }
     internal val _ui = MutableStateFlow(EditorUi())
     val ui: StateFlow<EditorUi> = _ui
     val exports get() = app.exports
@@ -78,6 +97,50 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
             } catch (error: Exception) {
                 Log.e(TAG, "could not open $path", error)
                 say(error.message ?: "The project would not open.")
+            }
+        }
+        // The painted blocks of the titles and shapes, again whenever the
+        // project changes, so the transform box sits on what is drawn.
+        viewModelScope.launch {
+            ui.map { it.view }.distinctUntilChanged().collectLatest { view ->
+                if (view == null) return@collectLatest
+                try {
+                    val bounds = api.bounds(path)
+                    _ui.update { it.copy(bounds = bounds) }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.w(TAG, "clips.bounds failed", error)
+                }
+            }
+        }
+        // The cover, painted again when the document names another.
+        viewModelScope.launch {
+            ui.map { it.view?.cover?.toString() }.distinctUntilChanged().collectLatest { named ->
+                if (named == null) {
+                    _ui.update { it.copy(cover = null) }
+                    return@collectLatest
+                }
+                try {
+                    val file = File(getApplication<Application>().cacheDir, "cover-${path.hashCode()}.png")
+                    api.projectCover(path, file.absolutePath, COVER_SIDE, COVER_SIDE)
+                    val painted = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(file.absolutePath) }
+                    _ui.update { it.copy(cover = painted) }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.w(TAG, "project.cover failed", error)
+                }
+            }
+        }
+        viewModelScope.launch {
+            try {
+                val cards = api.shapes()
+                _ui.update { it.copy(stickers = cards) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.w(TAG, "shapes.list failed", error)
             }
         }
         // Scrubs, the latest one only: a drag sends far more than a frame can show.
@@ -180,9 +243,9 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
     fun edit(label: String, body: suspend () -> ProjectView?) = change(label, body)
 
     /**
-     * A clip dragged to [start] on [target]: `moveClips`, one undo step.
-     * A new lane is `addTrack` first, the move then naming the lane it
-     * minted.
+     * A clip dragged to [start] on [target]: `moveClips`, or onto a new lane
+     * `moveClipsToNewTrack`, which makes the lane and moves the clip in one
+     * undo step.
      */
     internal val liveChains = Channel<Triple<String, String, List<JSONObject>>>(Channel.CONFLATED)
 
@@ -254,5 +317,7 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         /** The projects screen's card for a project: its frame and its facts, in its folder. */
         const val THUMBNAIL = ".concat-thumb.png"
         const val CARD = ".concat-card.json"
+        /** The timeline's cover square, painted at this many pixels a side. */
+        private const val COVER_SIDE = 160
     }
 }

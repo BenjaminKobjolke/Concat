@@ -37,7 +37,7 @@ data class ProjectInfo(
 }
 
 enum class ClipKind {
-    Video, Audio, Image, Text, Layer, SoundLayer, Transition, Other;
+    Video, Audio, Image, Text, Shape, Layer, SoundLayer, Transition, Other;
 
     /** Whether the clip plays sound of its own: what captions can hear. */
     val hasSound get() = this == Video || this == Audio
@@ -83,7 +83,8 @@ data class MediaItem(
     val height: Int = 0,
 )
 
-data class Track(val id: String, val visible: Boolean, val muted: Boolean)
+/** One lane; [captions] is a caption lane's shared look (`{style, offsetY}`), none for any other. */
+data class Track(val id: String, val visible: Boolean, val muted: Boolean, val captions: JSONObject? = null)
 
 data class Clip(
     val id: String,
@@ -117,11 +118,17 @@ data class Clip(
     val fadeOut: Double = 0.0,
     /** The instants keyed, `0..=1` into the clip, of each property that has keys. */
     val keys: Map<String, List<Double>> = emptyMap(),
+    /** The crop (`left`, `top`, `right`, `bottom`, each `0..1` cut off), or none. */
+    val crop: JSONObject? = null,
+    /** The masks, top first, as the document holds them. */
+    val masks: List<JSONObject> = emptyList(),
+    /** The entrance (`in`), exit (`out`) and loop (`loop`), or none. */
+    val motion: JSONObject? = null,
 ) {
     val end get() = start + duration
 
     /** Whether the preview can move it about: a title, a picture, a layer over the main track. */
-    val placeable get() = kind == ClipKind.Text || kind == ClipKind.Image || kind == ClipKind.Video || kind == ClipKind.Other
+    val placeable get() = kind == ClipKind.Text || kind == ClipKind.Shape || kind == ClipKind.Image || kind == ClipKind.Video || kind == ClipKind.Other
 
     /** Whether any property is keyed within half a frame of [at] (0..1 into the clip). */
     fun keyedAt(at: Double, tolerance: Double): Boolean = keys.values.any { list -> list.any { kotlin.math.abs(it - at) <= tolerance } }
@@ -146,6 +153,8 @@ data class ProjectView(
     val createdId: String?,
     /** The active timeline's id: what the timeline commands name. */
     val timelineId: String = "",
+    /** The cover as the document holds it (`{"kind":"frame","time":s}` or `{"kind":"picture","path":..}`), or none. */
+    val cover: JSONObject? = null,
 ) {
     val fps: Double get() = rateNum.toDouble() / rateDen.coerceAtLeast(1)
     val duration: Double get() = clips.maxOfOrNull { it.end } ?: 0.0
@@ -306,5 +315,15 @@ data class CaptionSegment(val start: Double, val end: Double, val text: String) 
 
 /** `version`: the build and the contract it speaks. */
 data class VersionInfo(val apiVersion: String, val concat: String, val capabilities: List<String>)
+
+/**
+ * A title's or shape's block as the engine painted it (`clips.bounds`):
+ * fractions of the frame, before the clip's scale; [offsetX]/[offsetY] are
+ * where the block's centre sits from the clip's position.
+ */
+data class ClipBounds(val width: Double, val height: Double, val offsetX: Double, val offsetY: Double)
+
+/** One Stickers card (`shapes.list`): its stable id and the look it places, as `addShapeClip`'s `style`. */
+data class ShapeCard(val id: String, val style: JSONObject)
 
 fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }
