@@ -2713,6 +2713,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
                     state.open_menu = -1;
                     match action.as_str() {
                         "add-selected" => state.handle(Msg::Media(MediaMsg::AddSelectedAtPlayhead)),
+                        "collect-media" => state.handle(Msg::Media(MediaMsg::Collect)),
                         // The launch screen's own verb, from the menu bar:
                         // the picker, the check and the notice are all one
                         // implementation in panes/start.rs, so the two
