@@ -684,29 +684,6 @@ fn once_with<J: Job>(
             kill(&mut child);
             break Ended::Said(Err(Halt::Cancelled));
         }
-        if pulse.elapsed() > NO_PULSE {
-            kill(&mut child);
-            break Ended::Died {
-                death: Death {
-                    why: format!("it stopped answering for {}s", NO_PULSE.as_secs()),
-                    crash: None,
-                    hung: true,
-                },
-                last,
-            };
-        }
-        let quiet = J::quiet(last.as_ref());
-        if heard.elapsed() > quiet {
-            kill(&mut child);
-            break Ended::Died {
-                death: Death {
-                    why: format!("it made no progress for {}s", quiet.as_secs()),
-                    crash: None,
-                    hung: true,
-                },
-                last,
-            };
-        }
         match lines.recv_timeout(Duration::from_millis(100)) {
             Ok(text) => {
                 pulse = Instant::now();
@@ -739,7 +716,33 @@ fn once_with<J: Job>(
                     Line::Cancelled => break Ended::Said(Err(Halt::Cancelled)),
                 }
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Prefer the worker's closed output pipe to a watchdog
+                // deadline that elapsed while this thread was not scheduled.
+                if pulse.elapsed() > NO_PULSE {
+                    kill(&mut child);
+                    break Ended::Died {
+                        death: Death {
+                            why: format!("it stopped answering for {}s", NO_PULSE.as_secs()),
+                            crash: None,
+                            hung: true,
+                        },
+                        last,
+                    };
+                }
+                let quiet = J::quiet(last.as_ref());
+                if heard.elapsed() > quiet {
+                    kill(&mut child);
+                    break Ended::Died {
+                        death: Death {
+                            why: format!("it made no progress for {}s", quiet.as_secs()),
+                            crash: None,
+                            hung: true,
+                        },
+                        last,
+                    };
+                }
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 let status = child
                     .wait()
