@@ -18,6 +18,8 @@ cd ~/Concat
 git fetch origin refs/wsl-build
 git checkout --detach FETCH_HEAD
 cd src
+# setup.sh installs it too; checked here so a WSL setup made before upstream switched to cargo-ndk still builds.
+command -v cargo-ndk >/dev/null || cargo install cargo-ndk
 # A copy out of the NDK, so it runs every build rather than once in setup.sh.
 scripts/android-libs.sh aarch64-linux-android
 cd ../android-native
