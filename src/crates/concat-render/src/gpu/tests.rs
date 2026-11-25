@@ -1017,7 +1017,8 @@ fn every_shader_package_draws_a_4k_frame_within_its_budget() {
     let canary = frame_of(package("test.canary", INVERT, "", &[], 1.0));
     let floor = timed(&mut gpu, &canary).expect("an invert draws");
     eprintln!("an invert at {WIDTH}x{HEIGHT}: {floor:?}");
-    let limit = (floor * EFFECT_COST).max(EFFECT_FLOOR).min(EFFECT_BUDGET);
+    let limit_for =
+        |floor: std::time::Duration| (floor * EFFECT_COST).max(EFFECT_FLOOR).min(EFFECT_BUDGET);
     let catalogue = concat_effects::Catalogue::builtin();
     let mut over = Vec::new();
     let mut timings = Vec::new();
@@ -1046,6 +1047,11 @@ fn every_shader_package_draws_a_4k_frame_within_its_budget() {
                 package.lut().cloned(),
                 None,
             );
+            // Other workspace tests can submit work to this same device.
+            // Measure the canary beside each package so queued work raises
+            // both sides of the comparison instead of failing a shader.
+            let floor = timed(&mut gpu, &canary).expect("an invert draws");
+            let limit = limit_for(floor);
             match timed(&mut gpu, &frame_of(pass)) {
                 Ok(took) => {
                     timings.push((took, format!("{} at its {at}", package.id())));
