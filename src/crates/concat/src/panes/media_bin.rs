@@ -674,6 +674,14 @@ mod tests {
     }
 
     #[test]
+    fn collect_message_keeps_its_debug_activity() {
+        let activity = crate::panes::activity(&crate::panes::Msg::Media(MediaMsg::Collect))
+            .expect("collection is recorded");
+        assert_eq!(activity.level, log::Level::Debug);
+        assert_eq!(activity.line, "media: Collect");
+    }
+
+    #[test]
     fn rows_are_assigned_once_and_never_reused() {
         let mut bin = MediaBin::default();
         let mut project = project();
