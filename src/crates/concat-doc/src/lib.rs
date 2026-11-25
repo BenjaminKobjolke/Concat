@@ -118,11 +118,14 @@
 
 #![forbid(unsafe_code)]
 
+pub mod commands;
 pub mod document;
+pub mod file;
 pub mod history;
 pub mod id;
 pub mod map;
 pub mod model;
+pub mod save;
 pub mod table;
 pub mod time;
 

@@ -1145,6 +1145,9 @@ pub struct Studio {
     pub dock_aside: Dock,
     /// Whether `dock` is the compact one.
     pub compact: bool,
+    /// Whether `dock` held the Text to speech pane when last looked at, so
+    /// a dock change can tell the pane taken out from one never put in.
+    pub speech_docked: bool,
     pub workspace: (f32, f32),
     pub divider_press: Option<(usize, f32, f32)>,
     pub gesture: Gesture,
@@ -1306,6 +1309,12 @@ pub struct Studio {
     /// Media whose stabilization was turned on anew, so an analysis the
     /// app died in last time is tried again rather than skipped.
     stabilize_retry: HashSet<String>,
+    /// Cutout and stabilize analyses that failed, by the folder each
+    /// writes: not started again by themselves - offline, every edit
+    /// started the model's download again and said the same thing again -
+    /// until the person turns the feature on anew or the project opens
+    /// again. A changed subject or stretch is another folder, tried as new.
+    failed_analyses: HashSet<std::path::PathBuf>,
     /// The mask the Mask section and the monitor work on, by id: see
     /// `masks`. None, or an id the selected clip does not have, is its
     /// first.
@@ -2858,10 +2867,9 @@ pub enum Confirm {
     /// Restarting for a setting that is read only at launch: the project
     /// is saved, and opens again in the new window.
     Restart,
-    /// The run before this one died, on a phone: said once, at launch,
-    /// with its log to share (#560).
-    #[cfg(target_os = "android")]
-    LastRunClosed,
+    /// Applying a new address for the server, which restarts it and so
+    /// stops the `jobs` scripts and apps have running.
+    StopServerJobs { jobs: usize },
 }
 
 /// One clip on the clipboard: the clip as it was when copied, the row of
@@ -3161,6 +3169,7 @@ impl Studio {
             dock,
             dock_aside,
             compact: false,
+            speech_docked: false,
             workspace: (0.0, 0.0),
             divider_press: None,
             gesture: Gesture::None,
@@ -3216,6 +3225,7 @@ impl Studio {
             curve_selected: (String::new(), Vec::new()),
             speed_grabbed: None,
             stabilize_retry: HashSet::new(),
+            failed_analyses: HashSet::new(),
             mask_focus: None,
             enhance_jobs: HashMap::new(),
             enhance_scale: 0.0,

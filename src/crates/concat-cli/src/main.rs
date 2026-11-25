@@ -117,6 +117,11 @@ enum Command {
         /// card's own moment - to look at a moving effect instant by instant.
         #[arg(long)]
         moment: Option<f64>,
+        /// A knob set over the card's own, as `key=value`, e.g.
+        /// `--set direction=2`: to look at each of a package's choices.
+        /// Repeatable.
+        #[arg(long = "set", value_parser = knob)]
+        set: Vec<(String, f64)>,
     },
 
     /// Check effect packages before sharing them: load each folder the way
@@ -134,7 +139,39 @@ fn main() -> Result<(), Box<dyn Error>> {
     // A crash names the module it happened in on standard error, as the
     // window's does; see concat-host's crash.rs.
     concat_host::crash::catch();
-    match Cli::parse().command {
+    // The engine's log on standard error, as the MCP server's: standard
+    // output stays the commands' answers, and a script's run says what the
+    // engine did - an export resumed, an encoder refused - where it used to
+    // say nothing. No file, so scripted runs never push the window's own
+    // logs out of the folder.
+    let _ = concat_host::logs::open_console(None);
+    // An export of its own API's, in a process of its own: started as
+    // `concat-cli --worker export` by the `api` and `serve` commands below,
+    // so a crash in the render is an `export.failed` for their caller and
+    // not their process gone (#762).
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some(concat_worker::FLAG) {
+        let job = args.next().unwrap_or_default();
+        let table = [concat_worker::entry::<concat_host::export_apart::Export>()];
+        std::process::exit(concat_worker::serve(&table, &job));
+    }
+    let command = Cli::parse().command;
+    if matches!(command, Command::Api { .. } | Command::Serve { .. })
+        && let Ok(program) = std::env::current_exe()
+    {
+        concat_host::export_apart::serve_from(program);
+    }
+    // The imported effects and looks, for the commands that draw an edit
+    // through the API: without them an edit that uses one exported without
+    // it. Without the window's shader trial, which needs its device.
+    if matches!(command, Command::Api { .. } | Command::Serve { .. })
+        && let Ok(dirs) = concat_host::AppDirs::locate()
+    {
+        for error in concat_effects::Catalogue::install(&dirs.effects()) {
+            log::warn!("effects: an imported package was not loaded: {error}");
+        }
+    }
+    match command {
         Command::Probe { path } => probe(&path),
         Command::Render {
             input,
@@ -158,7 +195,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             height,
             progress,
             moment,
-        } => preview(&input, &output, &effect, (width, height), progress, moment),
+            set,
+        } => preview(
+            &input,
+            &output,
+            &effect,
+            (width, height),
+            progress,
+            moment,
+            &set,
+        ),
         Command::Check { path } => check(&path),
     }
 }
@@ -278,6 +324,7 @@ fn preview(
     (width, height): (u32, u32),
     progress: Option<f64>,
     moment: Option<f64>,
+    set: &[(String, f64)],
 ) -> Result<(), Box<dyn Error>> {
     let catalogue = concat_effects::Catalogue::builtin();
     let mut package = catalogue
@@ -299,6 +346,12 @@ fn preview(
         }
         card.moment = Some(moment.max(0.0));
     }
+    for (key, value) in set {
+        if package.manifest.owner(key).is_none() {
+            return Err(format!("{effect} has no knob {key}").into());
+        }
+        card.params.insert(key.clone(), *value);
+    }
     package.manifest.card = Some(card);
     let card = concat_host::cards::Card::of(catalogue, &package, Path::new(""))
         .ok_or_else(|| format!("{effect} draws no picture to make a card of"))?;
@@ -308,6 +361,18 @@ fn preview(
     painter.draw_to(&card, output)?;
     println!("{} -> {}", package.id(), output.display());
     Ok(())
+}
+
+/// A `--set` argument, `key=value`.
+fn knob(text: &str) -> Result<(String, f64), String> {
+    let (key, value) = text
+        .split_once('=')
+        .ok_or_else(|| format!("{text}: a knob is set as key=value"))?;
+    let value = value
+        .trim()
+        .parse::<f64>()
+        .map_err(|error| format!("{text}: {error}"))?;
+    Ok((key.trim().to_owned(), value))
 }
 
 /// Every package at `path` through the loader and its fixtures, one line

@@ -9,8 +9,8 @@
 //! to it; nothing here decides what an edit means.
 //!
 //! A library so that every entry point is a few lines: `main.rs` on the
-//! desktop and on iOS, and the `concat-android` activity on Android. Each
-//! one calls [`run`].
+//! desktop and on iOS. Each one calls [`run`]. Android's app is its own,
+//! over `concat-mobile`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -47,34 +47,26 @@ mod keymap;
 mod meters;
 mod motion_tiles;
 mod platform;
-mod project_media;
-/// How a phone keeps its screen on while a job runs; see
-/// `concat_host::awake`.
-#[cfg(target_os = "android")]
-pub use concat_host::awake::install as install_awake;
 /// What a phone's own crate installs before the window runs: the way to
 /// the system's file picker, and where a finished export is put so the
 /// phone shows it. See `platform::pick_files_async` and
 /// `platform::publish_export`.
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 pub use platform::{
     ExportPublisher, FilePicker, PickKinds, install_export_publisher, install_file_picker,
 };
-#[cfg(target_os = "android")]
-pub use platform::{FolderPicker, LinkOpener, install_folder_picker, install_link_opener};
-#[cfg(target_os = "android")]
-pub use platform::{LogSharer, install_log_sharer, log_file_name, note_last_exit};
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 pub use platform::{MicrophoneAccess, install_microphone_access};
 /// What a backend's hooks say of the window, for safe start: it drew a
-/// frame, or the person used it. On a desktop `DropHandler` says it; on
-/// Android, the activity's event listener. See `start_watch`.
+/// frame, or the person used it. On a desktop `DropHandler` says it. See
+/// `start_watch`.
 pub use start_watch::{window_drew, window_touched};
 #[cfg(test)]
 mod close_gate_tests;
 mod panes;
 mod prefs;
 mod presets;
+mod project_media;
 mod smoke_export;
 mod source;
 mod speed_ramp;
@@ -86,7 +78,7 @@ mod sysinfo;
 mod wayland_drop;
 /// Elsewhere the listener is a name that starts nothing, so platform.rs
 /// reads the same on every desktop.
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(not(target_os = "linux"))]
 mod wayland_drop {
     /// Nothing to listen to: no desktop but Linux draws through Wayland.
     pub struct Listener;
@@ -468,11 +460,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // the playhead at their middle; the strip and the dock are the desk's.
     let phone = platform::phone();
     app.set_phone(phone);
-    app.set_folder_picker(platform::folder_picker_available());
     // The launch screen's version line, and whether its drop zone is
     // offered: a drag in from the system is a desk's (see platform.rs).
     app.set_app_version(env!("CARGO_PKG_VERSION").into());
-    app.set_can_drop(cfg!(not(any(target_os = "android", target_os = "ios"))));
+    app.set_can_drop(cfg!(not(target_os = "ios")));
     app.set_capcut(concat_host::capcut::drafts_folder().is_some());
 
     // The user's own packages - imported looks, and any effect folder they
@@ -481,22 +472,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // first thing the window says.
     let mut studio = Studio::new(host);
     studio.set_phone(phone);
-    // A phone whose last run died says so once, now, and offers its log;
-    // the next launch reads this run, which did not (#560).
-    #[cfg(target_os = "android")]
-    if platform::last_run_died() {
-        log::info!("start: the last run died; offering its log");
-        studio.confirm = Some(studio::Confirm::LastRunClosed);
-    }
     if safe {
-        // Each key in a call of its own: scripts/locales.py finds a key by
-        // the literal inside `t(...)`, and one held in a variable is lost.
-        let notice = if cfg!(target_os = "android") {
-            i18n::t("start.safeModePhone")
-        } else {
-            i18n::t("start.safeMode")
-        };
-        studio.notify(&notice, false);
+        studio.notify(&i18n::t("start.safeMode"), false);
     } else if platform::no_graphics_driver() {
         // The machine's own state, not a choice: what makes Concat slow
         // here, and what fixes it, said once.
@@ -617,7 +594,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     // forbids it - the encoders are asked here, as they were.
     host::spawn_long(
         || {
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            #[cfg(not(target_os = "ios"))]
             if let Ok(program) = std::env::current_exe()
                 && let Err(why) =
                     concat_media::encode::apart::ask(&program, &[concat_media::encode::apart::FLAG])
@@ -681,14 +658,22 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         app.set_caption_languages(ModelRc::from(models.caption_languages.clone()));
         editor.set_caption_models(ModelRc::from(models.caption_models.clone()));
         editor.set_caption_languages(ModelRc::from(models.caption_languages.clone()));
-        app.set_speech_models(ModelRc::from(models.speech_models.clone()));
-        app.set_speech_model_details(ModelRc::from(models.speech_model_details.clone()));
-        app.set_speech_voices(ModelRc::from(models.speakers.clone()));
-        app.set_speech_voice_details(ModelRc::from(models.speaker_details.clone()));
-        app.set_speech_voice_avatars(ModelRc::from(models.speaker_avatars.clone()));
-        app.set_speech_samples(ModelRc::from(models.speech_samples.clone()));
-        app.set_speech_sample_waves(ModelRc::from(models.speech_sample_waves.clone()));
-        app.set_speech_sample_details(ModelRc::from(models.speech_sample_details.clone()));
+        app.global::<Speech>()
+            .set_models(ModelRc::from(models.speech_models.clone()));
+        app.global::<Speech>()
+            .set_model_details(ModelRc::from(models.speech_model_details.clone()));
+        app.global::<Speech>()
+            .set_voices(ModelRc::from(models.speakers.clone()));
+        app.global::<Speech>()
+            .set_voice_details(ModelRc::from(models.speaker_details.clone()));
+        app.global::<Speech>()
+            .set_voice_avatars(ModelRc::from(models.speaker_avatars.clone()));
+        app.global::<Speech>()
+            .set_samples(ModelRc::from(models.speech_samples.clone()));
+        app.global::<Speech>()
+            .set_sample_waves(ModelRc::from(models.speech_sample_waves.clone()));
+        app.global::<Speech>()
+            .set_sample_details(ModelRc::from(models.speech_sample_details.clone()));
         app.global::<Sounds>()
             .set_mine(ModelRc::from(models.sounds_mine.clone()));
         app.global::<Sounds>()
@@ -1035,13 +1020,18 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         // whichever is showing.
         state.set_compact(width < studio::COMPACT_WIDTH);
     }));
-    editor.on_dock_set(on_dock!(|state, seat: i32, kind: PaneKind| {
+    // These three can put Text to speech in the dock or take it out, which
+    // opens or puts away the tool itself, so the whole window is published
+    // and not the seats alone.
+    editor.on_dock_set(on_window!(|state, seat: i32, kind: PaneKind| {
         let Some(path) = state.dock.leaf_path(seat.max(0) as usize) else {
             return;
         };
         if let Dock::Leaf(held) = state.dock.at_mut(&path) {
             *held = kind;
         }
+        state.speech_from_dock();
+        state.remember_layout_soon();
     }));
     editor.on_dock_dropped(on_dock!(|state, from: i32, onto: i32, side: DockSide| {
         let (from, onto) = (from.max(0) as usize, onto.max(0) as usize);
@@ -1071,8 +1061,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         state.dock.split_leaf(&onto_path, taken, side);
         state.dock.remove_leaf(&from_path);
     }));
-    editor.on_dock_add(on_dock!(|state, kind: PaneKind| {
+    editor.on_dock_add(on_window!(|state, kind: PaneKind| {
         add_pane(&mut state, kind);
+        state.speech_from_dock();
+        state.remember_layout_soon();
     }));
     // Not on a phone or in the compact dock: there the two seats are the
     // monitor and the timeline, and a third would squeeze both.
@@ -1081,11 +1073,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             add_pane(&mut state, PaneKind::Keyframes);
         }
     }));
-    editor.on_dock_remove(on_dock!(|state, seat: i32| {
+    editor.on_dock_remove(on_window!(|state, seat: i32| {
         let Some(path) = state.dock.leaf_path(seat.max(0) as usize) else {
             return;
         };
         state.dock.remove_leaf(&path);
+        state.speech_from_dock();
+        state.remember_layout_soon();
     }));
     editor.on_divider_pressed(on_dock!(|state, index: i32| {
         let index = index.max(0) as usize;
@@ -1879,10 +1873,11 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     }));
     // Text to speech keeps the sample it reads in as a voice of the
     // user's own, with a name and a picture.
-    app.on_speech_save_name_edited(on_window!(|state, name: SharedString| {
-        state.handle(Msg::Speech(SpeechMsg::SaveNameEdited(name.to_string())));
-    }));
-    app.on_speech_pick_picture(|| {
+    app.global::<Speech>()
+        .on_save_name_edited(on_window!(|state, name: SharedString| {
+            state.handle(Msg::Speech(SpeechMsg::SaveNameEdited(name.to_string())));
+        }));
+    app.global::<Speech>().on_pick_picture(|| {
         host::pick_files_then(
             i18n::t("speech.picture"),
             Some((
@@ -1896,10 +1891,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
             },
         );
     });
-    app.on_speech_save_voice(on_window!(|state| {
+    app.global::<Speech>().on_save_voice(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::SaveVoice));
     }));
-    app.on_speech_clear_style(on_window!(|state| {
+    app.global::<Speech>().on_clear_style(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::ClearStyle));
     }));
     {}
@@ -2239,9 +2234,6 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     app.on_relink_all(on_window!(|state| {
         state.handle(Msg::Relink(RelinkMsg::RelinkAll));
     }));
-    app.on_relink_collect_media(on_window!(|state| {
-        state.handle(Msg::Media(MediaMsg::Collect));
-    }));
     app.on_relink_locate(on_window!(|state, id: SharedString| {
         state.handle(Msg::Relink(RelinkMsg::Locate(id.to_string())));
     }));
@@ -2491,6 +2483,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     app.on_settings_server_token_generated(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::ServerTokenGenerated));
     }));
+    app.on_settings_server_apply(on_window!(|state| {
+        state.handle(Msg::Settings(SettingsMsg::ServerApply { stop_jobs: false }));
+    }));
+    app.on_settings_server_revert(on_window!(|state| {
+        state.handle(Msg::Settings(SettingsMsg::ServerRevert));
+    }));
     app.on_settings_check_updates(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::CheckUpdates));
     }));
@@ -2654,39 +2652,47 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
     editor.on_captions_export_srt(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::ExportSrt));
     }));
-    app.on_speech_closed(on_window!(|state| {
+    app.global::<Speech>().on_closed(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Close));
     }));
-    app.on_speech_text_edited(on_window!(|state, text: SharedString| {
-        state.handle(Msg::Speech(SpeechMsg::TextEdited(text.to_string())));
-    }));
-    app.on_speech_voice_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Speech(SpeechMsg::VoiceChanged(index)));
-    }));
-    app.on_speech_model_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Speech(SpeechMsg::ModelChanged(index)));
-    }));
-    app.on_speech_speed_changed(on_window!(|state, value: f32| {
-        state.handle(Msg::Speech(SpeechMsg::SpeedChanged(value)));
-    }));
-    app.on_speech_reference_start_changed(on_window!(|state, seconds: f32| {
-        state.handle(Msg::Speech(SpeechMsg::ReferenceStartChanged(seconds)));
-    }));
-    app.on_speech_use_sample_changed(on_window!(|state, on: bool| {
-        state.handle(Msg::Speech(SpeechMsg::UseSampleChanged(on)));
-    }));
-    app.on_speech_sample_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Speech(SpeechMsg::SampleChanged(index)));
-    }));
+    app.global::<Speech>()
+        .on_text_edited(on_window!(|state, text: SharedString| {
+            state.handle(Msg::Speech(SpeechMsg::TextEdited(text.to_string())));
+        }));
+    app.global::<Speech>()
+        .on_voice_changed(on_window!(|state, index: i32| {
+            state.handle(Msg::Speech(SpeechMsg::VoiceChanged(index)));
+        }));
+    app.global::<Speech>()
+        .on_model_changed(on_window!(|state, index: i32| {
+            state.handle(Msg::Speech(SpeechMsg::ModelChanged(index)));
+        }));
+    app.global::<Speech>()
+        .on_speed_changed(on_window!(|state, value: f32| {
+            state.handle(Msg::Speech(SpeechMsg::SpeedChanged(value)));
+        }));
+    app.global::<Speech>()
+        .on_reference_start_changed(on_window!(|state, seconds: f32| {
+            state.handle(Msg::Speech(SpeechMsg::ReferenceStartChanged(seconds)));
+        }));
+    app.global::<Speech>()
+        .on_use_sample_changed(on_window!(|state, on: bool| {
+            state.handle(Msg::Speech(SpeechMsg::UseSampleChanged(on)));
+        }));
+    app.global::<Speech>()
+        .on_sample_changed(on_window!(|state, index: i32| {
+            state.handle(Msg::Speech(SpeechMsg::SampleChanged(index)));
+        }));
     // A string cut, and nothing of the window's: the sheet keeps the text,
     // Rust only knows where a character starts.
-    app.on_speech_insert_tag(|text: SharedString, tag: SharedString, at: i32| {
-        panes::speech::insert_tag(text.as_str(), tag.as_str(), at.max(0) as usize).into()
-    });
-    app.on_speech_begin(on_window!(|state| {
+    app.global::<Speech>()
+        .on_insert_tag(|text: SharedString, tag: SharedString, at: i32| {
+            panes::speech::insert_tag(text.as_str(), tag.as_str(), at.max(0) as usize).into()
+        });
+    app.global::<Speech>().on_begin(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Begin));
     }));
-    app.on_speech_cancel(on_window!(|state| {
+    app.global::<Speech>().on_cancel(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Cancel));
     }));
 
@@ -2726,7 +2732,6 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
                         "export" => state.handle(Msg::Export(ExportMsg::Open)),
                         "template" => state.save_template(),
                         "speech" => state.handle(Msg::Speech(SpeechMsg::Open)),
-                        "collect-media" => state.handle(Msg::Media(MediaMsg::Collect)),
                         "clear-cache" => state.clear_project_cache(),
                         "settings" => state.handle(Msg::Settings(SettingsMsg::Open)),
                         "close-project" => {
@@ -3130,24 +3135,6 @@ fn start(project: Option<std::path::PathBuf>, smoke: Smoke) -> Result<(), slint:
         }
         leave(1);
     }
-    // Android ends the loop when it destroys the activity - Back on the
-    // launch screen, or the system taking it back - with no close request
-    // first, and the process then left without a save: the edits since the
-    // last autosave were lost and the project's lock was left behind. A
-    // desktop's every way out closes the project before the loop ends.
-    #[cfg(target_os = "android")]
-    Shell::with(|shell, _| {
-        let mut studio = shell.studio.borrow_mut();
-        closing("by the system");
-        if studio.session.is_some()
-            && let Err(error) = studio.close_project()
-        {
-            log::error!(
-                "close: saving {} as the system ended the app failed: {error}; it closes without it",
-                studio.project_name
-            );
-        }
-    });
     stop_exports();
     drop(startup_mark);
     leave(0);
@@ -3284,20 +3271,12 @@ fn stop_exports() {
 /// Task Manager kill or a crash an update fixed left fast machines drawing
 /// every hover on it (#476). Settings > General's GPU switch goes back
 /// sooner. On Windows and Linux, which have a software rasteriser to draw
-/// on, and on Android, where the safe way is OpenGL ES in place of Vulkan:
-/// a phone whose Vulkan driver dies on the first frame closed on every
-/// launch, and the backend's fall back to OpenGL ES only catches a surface
-/// that fails to open (#507). A Mac draws the window on Skia's own
+/// on. A Mac draws the window on Skia's own
 /// rasteriser and keeps the compositor on Metal: an Iris Pro or a patched
 /// Radeon whose Metal compiler failed as the device opened never showed a
 /// window at all (#600, #423).
 fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
-    if !cfg!(any(
-        windows,
-        target_os = "linux",
-        target_os = "android",
-        target_os = "macos"
-    )) {
+    if !cfg!(any(windows, target_os = "linux", target_os = "macos")) {
         return (None, false);
     }
     let Ok(dirs) = concat_host::AppDirs::locate() else {
@@ -3314,12 +3293,7 @@ fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
     // own lines only say that it is so. A person on a fast GPU drawing on
     // the CPU, and nothing in the log saying why, could not be told apart
     // from a driver that would not open.
-    // On Android "software" is OpenGL ES in place of Vulkan, not the CPU.
-    let how = if cfg!(target_os = "android") {
-        "drawing on OpenGL ES in place of Vulkan"
-    } else {
-        "drawing in software"
-    };
+    let how = "drawing in software";
     match std::env::var("CONCAT_GPU") {
         // Set before Concat started: it wins over the setting either way.
         Ok(value) if value.trim().eq_ignore_ascii_case("software") => {
@@ -3349,10 +3323,7 @@ fn safe_start() -> (Option<concat_host::jobs::Tripwire>, bool) {
     }
     if preferences.draws_in_software() && std::env::var_os("CONCAT_GPU").is_none() {
         // SAFETY: on a desk the process is single-threaded here, as for the
-        // scale above. On Android the activity's glue thread is running, but
-        // it is Java's and reads no environment; Rust's own readers take
-        // the same lock this does. On Android the variable means OpenGL ES
-        // in place of Vulkan (the Skia patch reads it), not the CPU.
+        // scale above.
         unsafe { std::env::set_var("CONCAT_GPU", "software") };
     }
     // Said on every launch it holds, not only the first: the person on
@@ -3404,21 +3375,11 @@ pub fn draw_in_software() {
 /// rest of the run - so a quit after any transcription died of SIGABRT in
 /// `exit`, and macOS said Concat had quit unexpectedly. macOS ends an app
 /// that way itself when it opts into sudden termination.
-///
-/// And on Android, which Rust does not count as Linux. There `exit`
-/// destroys the system libraries' static mutexes while the runtime's own
-/// threads - binder's, and any thread in Java's file I/O - still take
-/// them: the mutex of libandroidio's AsynchronousCloseMonitor, which every
-/// blocking Java read and write locks, and one of libgui's. The thread
-/// that took one next aborted ("FORTIFY: pthread_mutex_lock called on a
-/// destroyed mutex"), after the export had finished. Those threads are the
-/// system's, not ours to stop first, and Android ends an app's process
-/// with a kill, never an `exit`, so nothing on a phone needs the handlers.
 fn leave(code: i32) -> ! {
     // The log's last line: a run that got here ended in order, whatever
     // its code, and the next run reads the lack of this line as a crash.
     concat_host::logs::end();
-    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::io::Write;
         let _ = std::io::stdout().flush();
@@ -3427,7 +3388,7 @@ fn leave(code: i32) -> ! {
         // this one's is touched after it.
         unsafe { libc::_exit(code) }
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "android")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     std::process::exit(code);
 }
 

@@ -221,18 +221,6 @@ impl MediaBin {
                                             )
                                         })?;
                                 let summary = media::probe(&imported.to_string_lossy())?;
-                                #[cfg(target_os = "android")]
-                                if imported != *path {
-                                    // Android's document picker stages files in the app's
-                                    // Imported folder. Once the project copy is usable, drop
-                                    // that staging copy so large videos do not occupy storage twice.
-                                    if let Err(error) = std::fs::remove_file(path) {
-                                        log::warn!(
-                                            "could not remove picked media {}: {error}",
-                                            path.display()
-                                        );
-                                    }
-                                }
                                 Ok(summary)
                             })
                             .collect::<Vec<_>>()

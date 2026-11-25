@@ -23,7 +23,7 @@ use super::index::lowest;
 use super::item::{Content, Item, LinkKind, MediaCut, Take};
 use super::look::{ShapeStyle, Title};
 use super::media::{Media, MediaKind};
-use super::sequence::{Background, Marker};
+use super::sequence::{Background, Cover, Marker};
 use super::timing::{TimeCurve, TimeMap, dur_in_range, len_in_range, tick_in_range};
 use super::{Model, ModelChanges};
 
@@ -31,8 +31,8 @@ use super::{Model, ModelChanges};
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Violation {
     /// What is at fault: the item, lane, mask or other thing whose own
-    /// value breaks the rule. `None` for the document's fonts, which
-    /// have no ids.
+    /// value breaks the rule. `None` for the document's fonts and its
+    /// cover, which have no ids.
     pub id: Option<AnyId>,
     /// Which rule.
     pub rule: Rule,
@@ -198,6 +198,9 @@ pub enum Rule {
         /// Which run, counted from zero.
         index: usize,
     },
+    /// A caption lane's look holds words or runs of its own, which are
+    /// each caption's.
+    CaptionWords,
     /// A sequence is open in two tabs.
     TabTwice,
     /// The document has sequences and none is showing.
@@ -251,6 +254,9 @@ pub(crate) struct Check<'a> {
     /// Sequences whose transitions are to be checked again for what is
     /// beneath them: those whose stack of lanes changed.
     stacks: BTreeSet<SequenceId>,
+    /// Whether the cover is to be checked again although it did not
+    /// change: the file it shows changed or went.
+    cover: bool,
 }
 
 impl<'a> Check<'a> {
@@ -263,6 +269,7 @@ impl<'a> Check<'a> {
             items: BTreeSet::new(),
             lanes: BTreeSet::new(),
             stacks: BTreeSet::new(),
+            cover: false,
         }
     }
 
@@ -483,27 +490,32 @@ pub(crate) fn media(cx: &mut Check<'_>) {
     }
     // What names a file that changed or went is put in question: an item
     // may take from it what it no longer has, or name it when it is gone.
-    let touched = changes
+    // So are a sequence's background and the cover: a still re-probed
+    // as a video is no longer a still.
+    let touched: BTreeSet<MediaId> = changes
         .replaced
         .iter()
         .map(|r| r.id)
-        .chain(changes.removed.iter().map(|(id, _)| *id));
-    let after = cx.after;
-    for media in touched {
-        cx.items.extend(after.items.index().using_media(media));
+        .chain(changes.removed.iter().map(|(id, _)| *id))
+        .collect();
+    if touched.is_empty() {
+        return;
     }
-    for (id, _) in &changes.removed {
-        for (sequence, held) in after.sequences.iter() {
-            if held.background.media() == Some(*id) {
-                cx.fault(
-                    sequence,
-                    Rule::Dangling {
-                        what: "background",
-                        to: id.any(),
-                    },
-                );
-            }
+    let after = cx.after;
+    for media in &touched {
+        cx.items.extend(after.items.index().using_media(*media));
+    }
+    for (sequence, held) in after.sequences.iter() {
+        if held
+            .background
+            .media()
+            .is_some_and(|m| touched.contains(&m))
+        {
+            cx.background(sequence.any(), "background", &held.background);
         }
+    }
+    if let Some(Cover::Picture { media }) = &after.cover {
+        cx.cover |= touched.contains(media);
     }
 }
 
@@ -597,6 +609,15 @@ pub(crate) fn lanes(cx: &mut Check<'_>) {
             .collect();
         for other in others {
             cx.fault(id, Rule::LaneOrderTaken { with: other });
+        }
+        if let Some(look) = &lane.captions {
+            let any = id.any();
+            // Its numbers are a title's, and where it sits an offset's.
+            title(cx, any, &look.title);
+            cx.number(any, "captions.offset_y", look.offset_y, Domain::Any);
+            if !look.title.content.is_empty() || !look.title.runs.is_empty() {
+                cx.fault(any, Rule::CaptionWords);
+            }
         }
     }
     // A lane that went takes nothing with it, and what was beneath a
@@ -1275,6 +1296,31 @@ pub(crate) fn fonts(cx: &mut Check<'_>) {
             });
         }
     }
+}
+
+pub(crate) fn cover(cx: &mut Check<'_>) {
+    if cx.changes.cover.is_none() && !cx.cover {
+        return;
+    }
+    let rule = match cx.after.cover {
+        Some(Cover::Frame { into }) if !dur_in_range(into) => Rule::OutOfRange { what: "cover" },
+        Some(Cover::Frame { into }) if into < TickDur::ZERO => Rule::Negative { what: "cover" },
+        Some(Cover::Picture { media }) => match cx.after.media.get(media) {
+            None => Rule::Dangling {
+                what: "cover",
+                to: media.any(),
+            },
+            Some(file) if matches!(file.kind, MediaKind::Video | MediaKind::Audio) => {
+                Rule::WrongKind {
+                    what: "cover",
+                    to: media.any(),
+                }
+            }
+            Some(_) => return,
+        },
+        _ => return,
+    };
+    cx.found.push(Violation { id: None, rule });
 }
 
 pub(crate) fn view(cx: &mut Check<'_>) {

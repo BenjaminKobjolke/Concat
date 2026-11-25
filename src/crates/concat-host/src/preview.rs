@@ -9,7 +9,7 @@
 //! different file - the window debounces and drops stale results, so a slow
 //! decode never wedges anything but itself.
 //!
-//! With the `gpu` feature and a device from [`Monitor::with_gpu`], a frame
+//! With the `gpu` feature and a device from [`Monitor::with_gpu_watching`], a frame
 //! is drawn on that device and handed back as a texture: decoded pictures
 //! go up once, the composite happens where it is shown, and no pixel comes
 //! back down. A frame is therefore two calls and not one -
@@ -109,27 +109,26 @@ impl Monitor {
 
     /// A monitor that composites on `device` - the window's - so
     /// [`Monitor::texture_of`] yields textures the window shows as they
-    /// are.
-    #[cfg(feature = "gpu")]
-    pub fn with_gpu(device: wgpu::Device, queue: wgpu::Queue) -> Self {
-        Self::with_gpu_watching(device, queue, Arc::default())
-    }
-
-    /// [`Monitor::with_gpu`] on a device whose lost callback sets `lost`:
+    /// are. The device's lost callback sets `lost`:
     /// from then on the monitor's frames are errors, not black pictures
-    /// drawn on a device that is gone.
+    /// drawn on a device that is gone. Its uncaptured-error handler adds
+    /// to `uncaught`, so a frame drawn under an error no scope caught is
+    /// known to be wrong (see `WgpuCompositor::counting`).
     #[cfg(feature = "gpu")]
     pub fn with_gpu_watching(
         device: wgpu::Device,
         queue: wgpu::Queue,
         lost: Arc<std::sync::atomic::AtomicBool>,
+        uncaught: Arc<std::sync::atomic::AtomicU64>,
     ) -> Self {
         Self {
             pool: Arc::clone(crate::scheduler().pool()),
             plan: Arc::new(Mutex::new(None)),
             early: Arc::new(Mutex::new(Vec::new())),
             gpu: Some(Arc::new(Mutex::new(
-                concat_render::WgpuCompositor::with_device(device, queue).watching(lost),
+                concat_render::WgpuCompositor::with_device(device, queue)
+                    .watching(lost)
+                    .counting(uncaught),
             ))),
         }
     }

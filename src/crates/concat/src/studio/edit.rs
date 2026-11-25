@@ -88,11 +88,10 @@ impl Studio {
                     .map(|session| std::path::PathBuf::from(session.path()));
                 crate::panes::settings::restart(project);
             }
-            #[cfg(target_os = "android")]
-            Some(Confirm::LastRunClosed) => {
-                if let Err(error) = crate::platform::share_log() {
-                    self.notify(&tf("settings.couldNotShareLog", &[&error]), true);
-                }
+            Some(Confirm::StopServerJobs { .. }) => {
+                self.handle(crate::panes::Msg::Settings(
+                    crate::panes::settings::SettingsMsg::ServerApply { stop_jobs: true },
+                ));
             }
             Some(Confirm::QuitWithoutSaving { .. }) => {
                 crate::closing("by Quit without saving");
@@ -156,15 +155,16 @@ impl Studio {
                 calm: true,
                 glyph: crate::ui::Glyph::Reset,
             },
-            #[cfg(target_os = "android")]
-            Confirm::LastRunClosed => crate::ui::ConfirmData {
+            Confirm::StopServerJobs { jobs } => crate::ui::ConfirmData {
                 open: true,
-                title: t("start.lastRunClosedTitle").into(),
-                message: t("start.lastRunClosed").into(),
-                action: t("settings.shareTheLog").into(),
-                cancel: t("relink.notNow").into(),
-                calm: true,
-                glyph: crate::ui::Glyph::Export,
+                title: t("settings.stopJobsTitle").into(),
+                message: match jobs {
+                    1 => t("settings.stopJobsOne"),
+                    many => tf("settings.stopJobsMany", &[many]),
+                }
+                .into(),
+                action: t("settings.applyAndStop").into(),
+                ..Default::default()
             },
         }
     }

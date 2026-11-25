@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One-time setup for building the Android APK on Windows, inside WSL (Ubuntu).
-# CI builds on Ubuntu (.github/workflows/mobile.yml); this mirrors it.
+# One-time setup for building the Gradle Android app on Windows, inside WSL (Ubuntu).
+# CI builds on Ubuntu (.github/workflows/mobile.yml); this mirrors its phone build.
 #
 # First, as root, in the Ubuntu terminal:
 #   sudo apt-get update && sudo apt-get install -y build-essential cmake clang libclang-dev openjdk-17-jdk-headless
@@ -8,7 +8,7 @@
 #   wsl -d Ubuntu -- bash /mnt/d/<path>/Concat/scripts/android-wsl/setup.sh
 # Then build with build-apk.bat.
 #
-# Installs, all under $HOME: Rust (pinned toolchain) + cargo-apk, the Android
+# Installs, all under $HOME: Rust (pinned toolchain) + cargo-ndk, the Android
 # SDK/NDK, an LF clone of this checkout at ~/Concat (scripts in the Windows
 # checkout have CRLF endings), a local signing key, and the vendored FFmpeg.
 # Safe to re-run: finished steps are skipped.
@@ -25,7 +25,7 @@ if [ ! -x ~/.cargo/bin/rustup ]; then
 fi
 . ~/.cargo/env
 rustup toolchain install "$toolchain" --profile minimal --target aarch64-linux-android
-command -v cargo-apk >/dev/null || cargo "+$toolchain" install cargo-apk
+command -v cargo-ndk >/dev/null || cargo "+$toolchain" install cargo-ndk
 
 # Linux Android SDK + NDK (the Windows SDK's NDK cannot run under Linux).
 sdk=~/Android/Sdk

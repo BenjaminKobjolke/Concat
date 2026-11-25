@@ -23,6 +23,7 @@
 mod ahead;
 pub mod chains;
 pub mod flatten;
+pub mod parts;
 mod resolve;
 #[cfg(test)]
 mod speed_curve_tests;
@@ -298,6 +299,11 @@ pub struct ExportClip {
     /// `Clip::motion`.
     #[serde(default)]
     pub motion: Option<concat_project::model::ClipMotion>,
+    /// A moment of the clip this one stands in for, held: `(seconds into
+    /// it, its length)`. Set on a transition's stand-ins, never read from
+    /// a request; see `concat_core::timeline::Clip::frozen`.
+    #[serde(skip)]
+    pub frozen: Option<(f64, f64)>,
     /// Draw the cutout tinted over the whole picture instead of cutting
     /// it: the view while the clip's brushes are in use. Preview only.
     #[serde(default)]
@@ -435,6 +441,7 @@ impl ExportClip {
             has_audio: None,
             cutout: None,
             motion: None,
+            frozen: None,
             masks: Vec::new(),
             mask_dir: String::new(),
             stabilize: None,
@@ -563,6 +570,11 @@ pub struct ExportRequest {
     pub canvas: [u8; 4],
     /// The flattened clip list to render.
     pub clips: Vec<ExportClip>,
+    /// What lets this export be taken up again where it stopped, when
+    /// whoever flattened it can say what the edit is; see [`parts`].
+    /// None: an export that stops starts over.
+    #[serde(skip)]
+    pub resume: Option<parts::Resume>,
 }
 
 /// The engine's word for a document's colour range: the two enums are one
@@ -948,10 +960,9 @@ fn last_frame_held(clip: &ExportClip, start: f64, length: f64, frame: f64) -> Ex
 }
 
 /// `clip` placed at `start` for `length` seconds with no sound, no fades,
-/// no transitions and no speed of its own, and every property it keys held
-/// where its keys leave it at its head (`head`) or its tail: keys are
-/// absolute and a keyed property's constant is the neutral value, so the
-/// end of each ride becomes the copy's constant.
+/// no transitions and no speed of its own, and held at its head (`head`)
+/// or its tail: its keys, its moves and its masks' and effects' keyed
+/// numbers all read that one moment of it for the copy's whole span.
 fn held_at(clip: &ExportClip, start: f64, length: f64, head: bool) -> ExportClip {
     let mut held = clip.clone();
     held.start = start;
@@ -968,33 +979,11 @@ fn held_at(clip: &ExportClip, start: f64, length: f64, head: bool) -> ExportClip
     held.video_fade_in = 0.0;
     held.transition_shapes.clear();
     held.roles.clear();
-    let ends: Vec<(String, f64)> = [
-        "scale", "offsetX", "offsetY", "rotation", "stretchX", "stretchY", "opacity",
-    ]
-    .into_iter()
-    .filter_map(|property| {
-        let keys = held.animation.iter().filter(|key| key.property == property);
-        let end = if head {
-            keys.min_by(|a, b| a.at.total_cmp(&b.at))
-        } else {
-            keys.max_by(|a, b| a.at.total_cmp(&b.at))
-        };
-        end.map(|key| (property.to_owned(), key.value))
-    })
-    .collect();
-    held.animation.clear();
-    for (property, value) in ends {
-        match property.as_str() {
-            "scale" => held.scale = value,
-            "offsetX" => held.offset_x = value,
-            "offsetY" => held.offset_y = value,
-            "rotation" => held.rotation = value,
-            "stretchX" => held.stretch_x = value,
-            "stretchY" => held.stretch_y = value,
-            "opacity" => held.opacity = value,
-            _ => {}
-        }
-    }
+    // A copy of a copy holds what the first one held.
+    held.frozen = clip.frozen.or(Some((
+        if head { 0.0 } else { clip.duration },
+        clip.duration,
+    )));
     held
 }
 
@@ -1190,6 +1179,25 @@ pub fn render_on(
     let container = request.codec.container();
     let sound_container = if container == "webm" { "webm" } else { "m4a" };
     let silent = directory.join(format!(".{stem}.concat-video.{container}"));
+    // Written in parts when whoever flattened the edit can say what it
+    // is, so an export that stops is taken up where it stopped.
+    let plan = request.resume.as_ref().map(|resume| parts::Plan {
+        folder: parts::folder_for(&output),
+        container,
+        ranges: parts::ranges(total_frames, rate, resume.part_frames),
+        identity: format!(
+            "{}\n{}x{} {}/{} {:?} {} {total_frames}\n{}",
+            resume.key,
+            request.width,
+            request.height,
+            request.rate_num,
+            request.rate_den,
+            request.canvas,
+            request.effect_time_offset,
+            env!("CARGO_PKG_VERSION"),
+        ),
+        stop_after: resume.stop_after,
+    });
     let mixed = directory.join(format!(".{stem}.concat-audio.{sound_container}"));
     let muxed = directory.join(format!(".{stem}.concat-muxed.{container}"));
 
@@ -1209,39 +1217,76 @@ pub fn render_on(
     // that failed - the disk full, a read error - left a truncated file
     // where the previous export had been (audit 2026-10-09, finding 4).
     let result = (|| -> Result<(), Halt> {
-        op.step("render");
-        render_picture(
-            request,
-            compositor,
-            rate,
-            total_frames,
-            &visible,
-            transitions,
-            &silent,
-            &mut reporter,
-            &mut spent,
-        )?;
+        // The sound is mixed on a thread of its own while the picture is
+        // drawn: it needs nothing of the picture, and mixed after it, every
+        // export took its whole mix on top - on a phone, a third of the
+        // export. Cancel is asked at every frame of the mix, so a long
+        // timeline's stops within the frame it is on; a picture that fails
+        // stops the mix the same way.
+        let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
+        let buses = audio_buses(&resolved);
+        let cancel = reporter.cancel;
+        let picture_failed = AtomicBool::new(false);
+        let (picture, sound_mixed) = std::thread::scope(|scope| {
+            let mixing = (!sound.is_empty()).then(|| {
+                let (mix, buses, mixed, picture_failed) = (&mix, &buses, &mixed, &picture_failed);
+                std::thread::Builder::new()
+                    .name("export mix".to_owned())
+                    .spawn_scoped(scope, move || {
+                        let began = std::time::Instant::now();
+                        audio::mix_to_file_until(mix, buses, timeline_end.as_f64(), mixed, &|| {
+                            cancel.load(Ordering::Relaxed) || picture_failed.load(Ordering::Relaxed)
+                        })
+                        .map(|()| began.elapsed())
+                    })
+            });
+            op.step("render");
+            let picture = render_picture(
+                request,
+                compositor,
+                rate,
+                total_frames,
+                &visible,
+                transitions,
+                &silent,
+                plan.as_ref(),
+                &mut reporter,
+                &mut spent,
+            );
+            if picture.is_err() {
+                picture_failed.store(true, Ordering::Relaxed);
+            }
+            let sound_mixed = mixing.map(|spawned| {
+                let thread = spawned.map_err(|error| {
+                    Halt::Failed(format!("could not start the sound's mix: {error}"))
+                })?;
+                if picture.is_ok() && !thread.is_finished() {
+                    // What is left of the mix once the picture is done.
+                    reporter.emit(0, total_frames, "mixing audio");
+                    op.step("mix audio");
+                }
+                match thread.join() {
+                    Ok(mixed) => mixed.map_err(Halt::from),
+                    Err(_) => Err(Halt::Failed("the sound's mix panicked".to_owned())),
+                }
+            });
+            (picture, sound_mixed)
+        });
+        picture?;
 
-        let finished = if sound.is_empty() {
-            &silent
-        } else {
-            reporter.cancelled()?;
-            reporter.emit(0, total_frames, "mixing audio");
-            op.step("mix audio");
-            let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
-            let buses = audio_buses(&resolved);
-            // Cancel is asked at every frame of the mix, so a long
-            // timeline's stops within the frame it is on.
-            let cancel = reporter.cancel;
-            audio::mix_to_file_until(&mix, &buses, timeline_end.as_f64(), &mixed, &|| {
-                cancel.load(Ordering::Relaxed)
-            })?;
-
-            reporter.cancelled()?;
-            reporter.emit(total_frames, total_frames, "muxing");
-            op.step("mux");
-            audio::mux(&silent, &mixed, &muxed).map_err(|error| error.to_string())?;
-            &muxed
+        let finished = match sound_mixed {
+            None => &silent,
+            Some(took) => {
+                op.note(format_args!(
+                    "sound mixed alongside the picture in {}",
+                    concat_log::span(took?)
+                ));
+                reporter.cancelled()?;
+                reporter.emit(total_frames, total_frames, "muxing");
+                op.step("mux");
+                audio::mux(&silent, &mixed, &muxed).map_err(|error| error.to_string())?;
+                &muxed
+            }
         };
         op.end_step();
         std::fs::rename(finished, &output)
@@ -1251,10 +1296,10 @@ pub fn render_on(
     spent.note(&mut op);
     match &result {
         Ok(()) => {
-            let fps = spent.frames as f64 / op.elapsed().as_secs_f64().max(1e-9);
+            let fps = spent.drawn() as f64 / op.elapsed().as_secs_f64().max(1e-9);
             op.done(format_args!(
                 "{} frames at {fps:.1} fps{}",
-                spent.frames,
+                spent.drawn(),
                 if spent.on_cpu {
                     ", drawn on the CPU"
                 } else {
@@ -1269,6 +1314,20 @@ pub fn render_on(
     let _ = std::fs::remove_file(&silent);
     let _ = std::fs::remove_file(&mixed);
     let _ = std::fs::remove_file(&muxed);
+    // The parts are kept only for an export that failed, which the next
+    // export of the same edit takes up; one that finished or was stopped
+    // on purpose leaves nothing behind.
+    if let Some(plan) = &plan {
+        match &result {
+            Err(Halt::Failed(_)) if plan.folder.is_dir() => log::info!(
+                "export: the parts written are kept in {}; exporting again takes up from there",
+                plan.folder.display()
+            ),
+            _ => {
+                let _ = std::fs::remove_dir_all(&plan.folder);
+            }
+        }
+    }
 
     result.map(|()| output.to_string_lossy().into_owned())
 }
@@ -1863,6 +1922,7 @@ fn render_picture(
     visible: &[&ExportClip],
     transitions: Vec<TransitionSpan>,
     destination: &Path,
+    plan: Option<&parts::Plan>,
     reporter: &mut Reporter<'_>,
     spent: &mut Spent,
 ) -> Result<(), Halt> {
@@ -1953,19 +2013,32 @@ fn render_picture(
         } else {
             "rendering"
         };
-        let (path, size, settings) = (
-            destination.to_path_buf(),
-            (request.width, request.height),
-            options.clone(),
-        );
-        let mut writer = Writer::start(destination, move || {
+        let (size, settings) = ((request.width, request.height), options.clone());
+        let open: parts::Open = Arc::new(move |path: &Path| {
             if hdr {
-                Encoder::create_hdr(&path, size.0, size.1, rate, &settings, signal)
+                Encoder::create_hdr(path, size.0, size.1, rate, &settings, signal)
             } else {
-                Encoder::create(&path, size.0, size.1, rate, &settings)
+                Encoder::create(path, size.0, size.1, rate, &settings)
             }
-        })
+        });
+        // Whole, or in parts taken up where a stopped export left them;
+        // what it encodes with is part of what the parts are for, so a
+        // pass begun again on the CPU's encoder starts the parts afresh.
+        let mut writer = parts::Split::start(
+            destination,
+            total_frames,
+            rate,
+            plan,
+            &format!("{options:?} hdr {hdr} {signal:?}"),
+            parts::warm_up(rate, !cutouts.is_empty()),
+            open,
+        )
         .map_err(|error| failed_encoding(&error, &options))?;
+        let first = writer.first();
+        spent.first = first;
+        if writer.taken_up() {
+            reporter.emit(first, total_frames, stage);
+        }
         // The encoder's own YUV out of the device where it takes one: the
         // frame is converted where it was drawn, and comes back at a byte
         // and a half a pixel rather than four.
@@ -1984,7 +2057,7 @@ fn render_picture(
         // times without any seeking - including retimed clips. Each reads on
         // a thread of its own, ahead of the drawing, and is opened a moment
         // before its run begins; see `ahead`.
-        let mut feeds = ahead::Feeds::new(read_lead(rate), spent.decoding.clone());
+        let mut feeds = ahead::Feeds::new(read_lead(rate), spent.decoding.clone()).from(first);
         let paced = |layer: &PlannedLayer| {
             // Aspect-correct: decode at the source's fitted size and let
             // the compositor place it, rather than stretching to the frame
@@ -2037,7 +2110,7 @@ fn render_picture(
             std::collections::VecDeque::new();
         while compositor.compositor().collect().is_some() {}
 
-        for index in 0..total_frames {
+        for index in first..total_frames {
             reporter.cancelled()?;
 
             let reading = std::time::Instant::now();
@@ -2234,6 +2307,9 @@ fn render_picture(
                 again_in_software(&error, &mut options, written, total_frames)?;
                 reporter.emit(0, total_frames, RENDERING_IN_SOFTWARE);
                 continue 'pass;
+            }
+            if let Some(why) = writer.halt() {
+                return Err(Halt::Failed(why));
             }
 
             // Retire decoders whose run has finished, so a long timeline does
@@ -2505,9 +2581,12 @@ struct Spent {
     /// The output's size and frames a second.
     size: (u32, u32),
     fps: f64,
-    /// The frames the picture has, and how many were drawn.
+    /// The frames the picture has, the one after the last drawn, and the
+    /// first this run drew: an export taken up from its parts starts past
+    /// the frames an earlier run wrote (see [`Spent::drawn`]).
     total: i64,
     frames: i64,
+    first: i64,
     /// The adapter the picture was drawn on, as the drivers name it.
     adapter: String,
     /// How many times the device died under the export; see `recovered`.
@@ -2546,6 +2625,13 @@ struct Spent {
 }
 
 impl Spent {
+    /// The frames this run drew. Counting from frame 0 credited a run taken
+    /// up from its parts with the frames an earlier run wrote, and said it
+    /// drew faster than it did.
+    fn drawn(&self) -> i64 {
+        (self.frames - self.first).max(0)
+    }
+
     /// A pass begins, on `encoder`: what the last one spent is for a file
     /// nobody will finish.
     fn pass(&mut self, encoder: &str) {
@@ -2594,7 +2680,8 @@ impl Spent {
         if self.cpu_frames > 0 {
             op.note(format_args!(
                 "{} of {} frames drawn on the CPU, faster than that adapter",
-                self.cpu_frames, self.frames
+                self.cpu_frames,
+                self.drawn()
             ));
         }
         if self.losses > 0 {
@@ -2604,12 +2691,18 @@ impl Spent {
                 if self.losses == 1 { "" } else { "s" }
             ));
         }
-        let drawn = self.frames as f64 / self.picture.as_secs_f64().max(1e-9);
+        if self.first > 0 {
+            op.note(format_args!(
+                "taken up at frame {} of {}: the frames before it were written by an earlier run",
+                self.first, self.total
+            ));
+        }
+        let drawn = self.drawn() as f64 / self.picture.as_secs_f64().max(1e-9);
         op.note(format_args!(
             "picture {} of {} frames at {drawn:.1} fps: planning {}, waiting for footage {}, \
              seeking footage {} for {} frames, drawing {}, waiting for the encoder {}, encoding {} \
              alongside",
-            self.frames,
+            self.drawn(),
             self.total,
             span(self.reading.saturating_sub(self.footage + self.seeking)),
             span(self.footage),
@@ -3521,6 +3614,7 @@ pub fn preview_plan(
         effect_time_offset: 0.0,
         canvas,
         clips: Vec::new(),
+        resume: None,
     };
     PreviewPlan {
         built: build_timeline(&shim, rate, &visible, transitions),
@@ -4008,6 +4102,91 @@ mod tests {
             before.source_start
         );
         assert!(before.muted);
+    }
+
+    /// A transition's stand-ins hold the clips they extend at the cut: the
+    /// outgoing side as its last instant has it, the incoming as its first.
+    /// Read at their own time, a stand-in replayed its clip's entrance or
+    /// exit and keys squeezed into the transition, then the clip played
+    /// them again from the cut (audit 2026-11-15, E3).
+    #[test]
+    fn a_transitions_stand_ins_hold_their_clips_moves_and_keys_at_the_cut() {
+        use concat_project::model::{ClipMotion, ClipMove};
+        let moving = |kind: &str| {
+            Some(ClipMove {
+                kind: kind.into(),
+                seconds: 0.5,
+            })
+        };
+        let mut clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("video", 0, 2.0, 2.0, 5.0),
+            transition_clip("concat.dissolve", 1.5, 1.0, 1),
+        ];
+        for footage in &mut clips[..2] {
+            footage.media_duration = Some(10.0);
+        }
+        clips[0].motion = Some(ClipMotion {
+            exit: moving("slide-right"),
+            ..Default::default()
+        });
+        clips[0].animation = vec![
+            ExportKey {
+                property: "scale".into(),
+                at: 0.0,
+                value: 1.0,
+                ease: linear_ease(),
+            },
+            ExportKey {
+                property: "scale".into(),
+                at: 1.0,
+                value: 2.0,
+                ease: linear_ease(),
+            },
+        ];
+        clips[1].motion = Some(ClipMotion {
+            enter: moving("slide-left"),
+            ..Default::default()
+        });
+        let plan = preview_plan(&clips, 64, 36, 30, 1, ColorSpace::default(), [0, 0, 0, 255]);
+        let timeline = &plan.built.timeline;
+        let engine: Vec<&concat_core::timeline::Clip> = timeline
+            .tracks()
+            .flat_map(|(_, track)| track.clips().iter())
+            .filter_map(|id| timeline.clip(*id))
+            .collect();
+        let at = |seconds: f64| Rational::approximate(seconds).expect("a time");
+        let own = |start: f64| {
+            engine
+                .iter()
+                .find(|clip| clip.frozen.is_none() && (clip.start.as_f64() - start).abs() < 1e-6)
+                .unwrap_or_else(|| panic!("the clip at {start}"))
+        };
+        let (outgoing, incoming) = (own(0.0), own(2.0));
+        let stand_ins: Vec<_> = engine.iter().filter(|clip| clip.frozen.is_some()).collect();
+        assert_eq!(stand_ins.len(), 2, "one stand-in a side");
+        for stand_in in stand_ins {
+            let tail = stand_in.start >= outgoing.start + outgoing.duration;
+            // Both at the cut itself: the outgoing clip's exit has ended
+            // there, and the incoming one's entrance begins.
+            let (clip, cut) = (if tail { outgoing } else { incoming }, at(2.0));
+            let (early, late) = (
+                stand_in.start,
+                stand_in.start + stand_in.duration - at(1.0 / 30.0),
+            );
+            for moment in [early, late] {
+                assert_eq!(
+                    stand_in.pose_at(moment),
+                    clip.pose_at(cut),
+                    "tail {tail}: pose"
+                );
+                let (held, real) = (stand_in.transform_at(moment), clip.transform_at(cut));
+                assert!(
+                    (held.scale - real.scale).abs() < 0.05,
+                    "tail {tail}: scale {held:?} {real:?}"
+                );
+            }
+        }
     }
 
     /// A clip with nothing past its out-point holds its last frame into the
@@ -4806,6 +4985,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![footage.clone()],
+            resume: None,
         };
         let render = |request: &ExportRequest, stop: bool| {
             let cancel = AtomicBool::new(stop);
@@ -4894,6 +5074,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![footage],
+            resume: None,
         };
         assert!(!nested.exists());
         let cancel = AtomicBool::new(false);
@@ -4976,6 +5157,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![footage],
+            resume: None,
         };
         let cancel = AtomicBool::new(false);
         let mut progress = |_: i64, _: i64, _: &'static str| {};
@@ -5079,6 +5261,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![footage.clone(), sound.clone()],
+            resume: None,
         };
         let render = |request: &ExportRequest| {
             let cancel = AtomicBool::new(false);
@@ -5272,6 +5455,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![clip],
+            resume: None,
         };
         let render = |request: &ExportRequest, lent: WgpuCompositor| {
             let cancel = AtomicBool::new(false);
@@ -5387,6 +5571,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: vec![clip],
+            resume: None,
         };
         let middles = |clip: ExportClip, name: &str, lent: WgpuCompositor| {
             let cancel = AtomicBool::new(false);
@@ -5785,6 +5970,7 @@ mod tests {
             hdr: false,
             effect_time_offset: 0.0,
             clips: pictures.into_iter().chain([sound]).collect(),
+            resume: None,
         };
         let cancel = AtomicBool::new(false);
         let mut progress = |_: i64, _: i64, _: &'static str| {};
