@@ -48,18 +48,20 @@ internal fun EditorPanelContent(panel: Panel?, room: Dp, context: EditorPanelCon
                     caption = view?.tracks?.firstOrNull { it.id == clip.trackId }?.captions != null,
                 )
             }
-            Panel.Effects -> PackagePanel(Shelf.Effects, catalogue, model, onMore = { context.onCatalogue(Shelf.Effects, false) }, onClose = close)
-            Panel.Filters -> PackagePanel(Shelf.Filters, catalogue, model, onMore = { context.onCatalogue(Shelf.Filters, false) }, onClose = close)
-            Panel.Transitions -> PackagePanel(Shelf.Transitions, catalogue, model, onMore = { context.onCatalogue(Shelf.Transitions, false) }, onClose = close)
+            Panel.Effects -> PackagePanel(Shelf.Effects, catalogue, model, PackagePanelActions({ context.onCatalogue(Shelf.Effects, false) }, close))
+            Panel.Filters -> PackagePanel(Shelf.Filters, catalogue, model, PackagePanelActions({ context.onCatalogue(Shelf.Filters, false) }, close))
+            Panel.Transitions -> PackagePanel(Shelf.Transitions, catalogue, model, PackagePanelActions({ context.onCatalogue(Shelf.Transitions, false) }, close))
             Panel.Aspect -> view?.let { v -> AspectPanel(v, { model.setAspect(it.width, it.height) }, close) }
             Panel.Background -> BackgroundPanel(model::setBackground, close)
             Panel.Cover -> CoverPanel(
                 ui.cover,
                 named = view?.cover != null,
-                onFrame = model::setCoverFrame,
-                onPicture = context.onCoverPicture,
-                onReset = model::resetCover,
-                onClose = close,
+                actions = CoverPanelActions(
+                    onFrame = model::setCoverFrame,
+                    onPicture = context.onCoverPicture,
+                    onReset = model::resetCover,
+                    onClose = close,
+                ),
             )
             Panel.Stickers -> StickersPanel(ui.stickers, { card -> model.addSticker(card, stickerName(card)) }, close)
             Panel.Captions -> CaptionsSheet(captions, model, preferClip = selected?.id, onDismiss = close)

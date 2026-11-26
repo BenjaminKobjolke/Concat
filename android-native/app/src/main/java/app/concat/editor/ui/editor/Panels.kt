@@ -52,6 +52,9 @@ import app.concat.editor.api.PackageInfo
 import app.concat.editor.api.ProjectView
 import app.concat.editor.ui.components.ChoiceChip
 import app.concat.editor.ui.components.ConcatIcon
+import app.concat.editor.ui.components.IconAppearance
+import app.concat.editor.ui.components.ToolPanelOptions
+import app.concat.editor.ui.components.ValueSliderOptions
 import app.concat.editor.ui.components.GhostButton
 import app.concat.editor.ui.components.PanelLabel
 import app.concat.editor.ui.components.ToolPanel
@@ -68,7 +71,7 @@ import org.json.JSONObject
 
 /*
  * The tools' sub-panels: what opens above the toolbar when a tool has
- * options, CapCut's way. Sliders apply when the finger lifts (one undo
+ * options. Sliders apply when the finger lifts (one undo
  * step each), chips at once; the check closes the panel.
  */
 
@@ -79,14 +82,16 @@ private val SPEEDS = listOf(0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0)
 fun SpeedPanel(clip: Clip, onApply: (Double) -> Unit, onClose: () -> Unit) {
     // The rail is log2 of the speed, so 1x sits in the middle.
     var rail by remember(clip.id) { mutableFloatStateOf(log2(clip.speed).toFloat()) }
-    ToolPanel("Speed", onClose = onClose, onConfirm = onClose) {
+    ToolPanel("Speed", onClose = onClose, options = ToolPanelOptions(onConfirm = onClose)) {
         ValueSlider(
             "Speed",
             rail,
             log2(0.1).toFloat()..log2(10.0).toFloat(),
-            { "%.2fx".format(2.0.pow(it.toDouble())) },
-            onChange = { rail = it },
-            onDone = { onApply(roundSpeed(2.0.pow(rail.toDouble()))) },
+            options = ValueSliderOptions(
+                { "%.2fx".format(2.0.pow(it.toDouble())) },
+                { rail = it },
+                onDone = { onApply(roundSpeed(2.0.pow(rail.toDouble()))) },
+            ),
         )
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             for (speed in SPEEDS) {
@@ -111,8 +116,8 @@ private fun roundSpeed(value: Double) = (value * 100).toInt() / 100.0
 @Composable
 fun VolumePanel(clip: Clip, onApply: (Double) -> Unit, onMute: () -> Unit, onClose: () -> Unit) {
     var value by remember(clip.id) { mutableFloatStateOf(clip.volume.toFloat()) }
-    ToolPanel("Volume", onClose = onClose, onConfirm = onClose) {
-        ValueSlider("Volume", value, 0f..2f, { "${(it * 100).toInt()}%" }, onChange = { value = it }, onDone = { onApply(value.toDouble()) })
+    ToolPanel("Volume", onClose = onClose, options = ToolPanelOptions(onConfirm = onClose)) {
+        ValueSlider("Volume", value, 0f..2f, options = ValueSliderOptions({ "${(it * 100).toInt()}%" }, { value = it }, onDone = { onApply(value.toDouble()) }))
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             for (preset in listOf(0.0, 0.5, 1.0, 1.5, 2.0)) {
                 ChoiceChip("${(preset * 100).toInt()}%", selected = abs(clip.volume - preset) < 1e-3, onClick = {
@@ -131,8 +136,8 @@ fun VolumePanel(clip: Clip, onApply: (Double) -> Unit, onMute: () -> Unit, onClo
 @Composable
 fun OpacityPanel(clip: Clip, onApply: (Double) -> Unit, onClose: () -> Unit) {
     var value by remember(clip.id) { mutableFloatStateOf(clip.opacity.toFloat()) }
-    ToolPanel("Opacity", onClose = onClose, onConfirm = onClose) {
-        ValueSlider("Opacity", value, 0f..1f, { "${(it * 100).toInt()}%" }, onChange = { value = it }, onDone = { onApply(value.toDouble()) })
+    ToolPanel("Opacity", onClose = onClose, options = ToolPanelOptions(onConfirm = onClose)) {
+        ValueSlider("Opacity", value, 0f..1f, options = ValueSliderOptions({ "${(it * 100).toInt()}%" }, { value = it }, onDone = { onApply(value.toDouble()) }))
     }
 }
 
@@ -142,9 +147,9 @@ fun FadePanel(clip: Clip, onApply: (Double, Double) -> Unit, onClose: () -> Unit
     val most = (clip.duration / 2).coerceIn(0.1, 5.0).toFloat()
     var fadeIn by remember(clip.id) { mutableFloatStateOf(clip.fadeIn.toFloat().coerceAtMost(most)) }
     var fadeOut by remember(clip.id) { mutableFloatStateOf(clip.fadeOut.toFloat().coerceAtMost(most)) }
-    ToolPanel("Fade", onClose = onClose, onConfirm = onClose) {
-        ValueSlider("Fade in", fadeIn, 0f..most, { "%.1fs".format(it) }, onChange = { fadeIn = it }, onDone = { onApply(fadeIn.toDouble(), fadeOut.toDouble()) })
-        ValueSlider("Fade out", fadeOut, 0f..most, { "%.1fs".format(it) }, onChange = { fadeOut = it }, onDone = { onApply(fadeIn.toDouble(), fadeOut.toDouble()) })
+    ToolPanel("Fade", onClose = onClose, options = ToolPanelOptions(onConfirm = onClose)) {
+        ValueSlider("Fade in", fadeIn, 0f..most, options = ValueSliderOptions({ "%.1fs".format(it) }, { fadeIn = it }, onDone = { onApply(fadeIn.toDouble(), fadeOut.toDouble()) }))
+        ValueSlider("Fade out", fadeOut, 0f..most, options = ValueSliderOptions({ "%.1fs".format(it) }, { fadeOut = it }, onDone = { onApply(fadeIn.toDouble(), fadeOut.toDouble()) }))
     }
 }
 
@@ -180,7 +185,7 @@ fun TextPanel(
         onClose()
     }
 
-    ToolPanel(if (existing == null) "Add text" else if (caption) "Caption" else "Text", onClose = onClose, onConfirm = ::save) {
+    ToolPanel(if (existing == null) "Add text" else if (caption) "Caption" else "Text", onClose = onClose, options = ToolPanelOptions(onConfirm = ::save)) {
         if (caption) PanelLabel("The words are this caption's; the look changes every caption.")
         BasicTextField(
             value = content,
@@ -205,7 +210,7 @@ fun TextPanel(
             ChoiceChip("Bold", selected = weight >= 600 && weight < 800, onClick = { weight = 700.0 })
             ChoiceChip("Black", selected = weight >= 800, onClick = { weight = 900.0 })
         }
-        ValueSlider("Size", size, 0.03f..0.2f, { "${(it * 100).toInt()}" }, onChange = { size = it })
+        ValueSlider("Size", size, 0.03f..0.2f, options = ValueSliderOptions({ "${(it * 100).toInt()}" }, { size = it }))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             for (hex in TEXT_COLOURS) {
                 val picked = hex.equals(colour, ignoreCase = true)
@@ -222,149 +227,6 @@ fun TextPanel(
     }
 }
 
-/**
- * Effects, filters or transitions as a row of tiles over the clip, CapCut's
- * way: "None" first, a tap applies, and the newest of this shelf's links
- * gets its strength slider beneath. "All" opens the full catalogue sheet
- * with search, categories and every knob.
- */
-@Composable
-fun PackagePanel(
-    shelf: Shelf,
-    catalogue: CatalogueViewModel,
-    editor: EditorViewModel,
-    onMore: () -> Unit,
-    onClose: () -> Unit,
-) {
-    val state by catalogue.ui.collectAsStateWithLifecycle()
-    val editorUi by editor.ui.collectAsStateWithLifecycle()
-    val clip = editorUi.view?.clip(editorUi.selected)
-    val kinds = shelf.kinds(clip)
-    LaunchedEffect(Unit) { catalogue.load() }
-    val offered = state.packages.filter { it.kind in kinds }
-    // The chain's links this shelf owns, as (field, index, link).
-    val links = clip?.let { c ->
-        buildList {
-            if ("audio" in kinds) c.filters.forEachIndexed { i, link -> add(Triple("filters", i, link)) }
-            c.videoEffects.forEachIndexed { i, link ->
-                val kind = catalogue.find(link.id)?.kind
-                if (c.kind == ClipKind.Transition || kind in kinds || (kind == null && "effect" in kinds)) add(Triple("videoEffects", i, link))
-            }
-        }
-    }.orEmpty()
-    val applied = links.map { it.third.id }.toSet()
-
-    ToolPanel(
-        shelf.title,
-        onClose = onClose,
-        onConfirm = onClose,
-        actions = { GhostButton("All", onMore, icon = ConcatIcons.Search, height = 32.dp, modifier = Modifier.padding(end = Spacing.sm)) },
-        padding = androidx.compose.foundation.layout.PaddingValues(vertical = Spacing.xs),
-    ) {
-        when {
-            !state.loaded -> PanelLabel("Loading...", Modifier.padding(horizontal = Spacing.lg))
-            state.error != null -> PanelLabel(state.error ?: "", Modifier.padding(horizontal = Spacing.lg))
-            clip == null && shelf != Shelf.Transitions -> PanelLabel("Select a clip to apply one.", Modifier.padding(horizontal = Spacing.lg))
-        }
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.lg),
-        ) {
-            if (shelf != Shelf.Transitions) {
-                item(key = "none") {
-                    PackageTileSmall(
-                        name = "None",
-                        tint = null,
-                        selected = links.isEmpty(),
-                        enabled = clip != null && links.isNotEmpty(),
-                    ) {
-                        clip?.let { c -> editor.removeLinks(c.id, links.map { it.first to it.second }) }
-                    }
-                }
-            }
-            items(offered, key = { it.id }) { pkg ->
-                PackageTileSmall(
-                    name = pkg.name,
-                    tint = tileColour(pkg),
-                    selected = pkg.id in applied,
-                    enabled = clip != null || shelf == Shelf.Transitions,
-                ) { editor.applyPackage(pkg.kind, pkg.id, pkg.name) }
-            }
-        }
-        // The newest link's strength, live as the finger moves.
-        val newest = links.maxByOrNull { if (it.first == "videoEffects") 1000 + it.second else it.second }
-        val pkg = newest?.let { catalogue.find(it.third.id) }
-        val knob = pkg?.params?.firstOrNull { it.key == pkg.intensity } ?: pkg?.params?.firstOrNull { it.type == "float" || it.type == "int" }
-        if (clip != null && newest != null && pkg != null && knob != null) {
-            LinkStrength(clip, newest.first, newest.second, newest.third, pkg, knob, editor)
-        }
-    }
-}
-
-@Composable
-private fun LinkStrength(
-    clip: Clip,
-    field: String,
-    index: Int,
-    link: AppliedEffect,
-    pkg: PackageInfo,
-    knob: app.concat.editor.api.ParamInfo,
-    editor: EditorViewModel,
-) {
-    var value by remember(clip.id, field, index, link.id) { mutableFloatStateOf((link.params[knob.key] ?: knob.default).toFloat()) }
-    val low = knob.min.toFloat()
-    val high = knob.max.toFloat().coerceAtLeast(low + 1e-3f)
-    Column(Modifier.padding(horizontal = Spacing.lg)) {
-        ValueSlider(
-            // The effect's name says what its strength is; another knob is named after it.
-            if (knob.key == pkg.intensity) pkg.name else "${pkg.name} ${knob.label.lowercase()}",
-            value,
-            low..high,
-            { if (knob.type == "int" || knob.step >= 1) "%.0f%s".format(it, knob.unit) else "%.2f%s".format(it, knob.unit) },
-            onChange = {
-                value = it
-                editor.setLink(clip.id, field, index, link.withParam(knob.key, it.toDouble()))
-            },
-        )
-    }
-}
-
-private fun tileColour(pkg: PackageInfo): Brush {
-    val hue = (pkg.id.hashCode() and 0xff) * 360f / 256f
-    return Brush.linearGradient(listOf(Color.hsv(hue, 0.5f, 0.7f), Color.hsv((hue + 40f) % 360f, 0.65f, 0.3f)))
-}
-
-@Composable
-private fun PackageTileSmall(name: String, tint: Brush?, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    Column(Modifier.width(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        val shape = RoundedCornerShape(Radii.md)
-        Box(
-            Modifier.size(64.dp).clip(shape)
-                .then(if (tint != null) Modifier.background(tint) else Modifier.background(ConcatColors.raised))
-                .border(if (selected) 2.dp else 0.dp, if (selected) ConcatColors.accent else Color.Transparent, shape)
-                .clickable(enabled = enabled, onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (tint == null) {
-                ConcatIcon(ConcatIcons.EyeOff, tint = ConcatColors.fgMuted, size = 22.dp)
-            } else if (selected) {
-                Box(Modifier.size(22.dp).clip(CircleShape).background(ConcatColors.accent), contentAlignment = Alignment.Center) {
-                    ConcatIcon(ConcatIcons.Check, tint = ConcatColors.onAccent, size = 14.dp)
-                }
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            name,
-            style = ConcatType.caption,
-            color = if (selected) ConcatColors.accent else if (enabled) ConcatColors.fg else ConcatColors.fgDim,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-        )
-    }
-}
-
 /** The frame's shapes. */
 enum class AspectChoice(val label: String, val width: Int, val height: Int) {
     Portrait("9:16", 1080, 1920),
@@ -377,7 +239,7 @@ enum class AspectChoice(val label: String, val width: Int, val height: Int) {
 
 @Composable
 fun AspectPanel(view: ProjectView, onPick: (AspectChoice) -> Unit, onClose: () -> Unit) {
-    ToolPanel("Aspect ratio", onClose = onClose, onConfirm = onClose) {
+    ToolPanel("Aspect ratio", onClose = onClose, options = ToolPanelOptions(onConfirm = onClose)) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
             for (choice in AspectChoice.entries) {
                 val picked = view.width * choice.height == view.height * choice.width
@@ -406,7 +268,7 @@ private val BACKGROUNDS = listOf("#000000", "#ffffff", "#1e1e22", "#cbf53f", "#f
 
 @Composable
 fun BackgroundPanel(onPick: (JSONObject) -> Unit, onClose: () -> Unit) {
-    ToolPanel("Background", onClose = onClose, onConfirm = onClose) {
+    ToolPanel("Background", onClose = onClose, options = ToolPanelOptions(onConfirm = onClose)) {
         PanelLabel("Behind the main track, where the picture does not fill the frame.")
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(

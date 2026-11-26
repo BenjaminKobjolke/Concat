@@ -32,6 +32,7 @@ import app.concat.editor.api.ModelInfo
 import app.concat.editor.models.ModelDownload
 import app.concat.editor.models.sizeLabel
 import app.concat.editor.ui.Palette
+import app.concat.editor.ui.components.IconAppearance
 
 @Composable
 fun SheetTitle(text: String) = Text(text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
@@ -97,7 +98,7 @@ fun ModelPicker(
                             fontSize = 12.sp,
                         )
                         !model.downloaded -> OutlinedButton(onClick = { onDownload(model) }) { Text("Download") }
-                        picked -> app.concat.editor.ui.components.ConcatIcon(app.concat.editor.ui.icons.ConcatIcons.Check, tint = Palette.accent, size = 20.dp)
+                        picked -> app.concat.editor.ui.components.ConcatIcon(app.concat.editor.ui.icons.ConcatIcons.Check, appearance = app.concat.editor.ui.components.IconAppearance(tint = Palette.accent, size = 20.dp))
                     }
                 }
                 if (downloading != null) {

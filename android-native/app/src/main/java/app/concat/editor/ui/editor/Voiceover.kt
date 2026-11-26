@@ -57,6 +57,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import app.concat.editor.ui.components.ToolPanelOptions
 
 sealed interface VoiceoverState {
     data object Idle : VoiceoverState
@@ -188,7 +189,7 @@ fun VoiceoverSheet(voiceover: VoiceoverViewModel, editor: EditorViewModel, onDis
         onDismiss()
     }
 
-    ToolPanel("Voiceover", onClose = close, scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+    ToolPanel("Voiceover", onClose = close, options = ToolPanelOptions(scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp))) {
         Column(
             Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),

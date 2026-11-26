@@ -85,6 +85,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import app.concat.editor.ui.components.IconActionOptions
 
 /** One project's card: its recents entry, its frame and its length when the editor left them. */
 /**
@@ -219,7 +220,7 @@ private fun ProjectsGridHeading(projectCount: Int, searching: Boolean, onToggleS
         }
         Spacer(Modifier.weight(1f))
         IconAction(if (searching) ConcatIcons.Close else ConcatIcons.Search,
-            if (searching) "Stop searching" else "Search", onToggleSearch, size = 20.dp)
+            if (searching) "Stop searching" else "Search", onToggleSearch, options = IconActionOptions(size = 20.dp))
     }
 }
 

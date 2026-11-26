@@ -22,6 +22,8 @@ import app.concat.editor.ui.components.ToolPanel
 import app.concat.editor.ui.components.ValueSlider
 import app.concat.editor.ui.theme.Spacing
 import org.json.JSONObject
+import app.concat.editor.ui.components.ValueSliderOptions
+import app.concat.editor.ui.components.ToolPanelOptions
 
 /*
  * The clip's look beyond its placement: crop, mask and animation. Each is a
@@ -69,21 +71,16 @@ fun CropPanel(clip: Clip, onApply: (JSONObject) -> Unit, onClose: () -> Unit) {
     fun percent(value: Float) = "${(value * 100).toInt()}%"
     // Each side may take what its opposite leaves, less a tenth of the picture.
     fun room(opposite: Float) = 0f..(0.9f - opposite).coerceAtLeast(0f)
-    ToolPanel(
-        "Crop",
-        onClose = onClose,
-        onConfirm = onClose,
-        actions = {
+    ToolPanel("Crop", onClose = onClose, options = ToolPanelOptions(onConfirm = onClose, actions = {
             ChoiceChip("Reset", false, onClick = {
                 left = 0f; top = 0f; right = 0f; bottom = 0f
                 send()
             })
-        },
-    ) {
-        ValueSlider("Left", left, room(right), ::percent, onChange = { left = it }, onDone = ::send)
-        ValueSlider("Right", right, room(left), ::percent, onChange = { right = it }, onDone = ::send)
-        ValueSlider("Top", top, room(bottom), ::percent, onChange = { top = it }, onDone = ::send)
-        ValueSlider("Bottom", bottom, room(top), ::percent, onChange = { bottom = it }, onDone = ::send)
+        })) {
+        ValueSlider("Left", left, room(right), options = ValueSliderOptions(::percent, { left = it }, onDone = ::send))
+        ValueSlider("Right", right, room(left), options = ValueSliderOptions(::percent, { right = it }, onDone = ::send))
+        ValueSlider("Top", top, room(bottom), options = ValueSliderOptions(::percent, { top = it }, onDone = ::send))
+        ValueSlider("Bottom", bottom, room(top), options = ValueSliderOptions(::percent, { bottom = it }, onDone = ::send))
     }
 }
 
@@ -99,7 +96,7 @@ private fun shapeLabel(shape: String?) = when (shape) {
 }
 
 /**
- * One mask, CapCut's way: a shape, how soft its edge is, and whether it
+ * One mask: a shape, how soft its edge is, and whether it
  * keeps the inside or the outside. A clip that already has several keeps
  * the rest; this edits the top one. Its place and size are kept as they
  * were, so a mask moved elsewhere (on the desktop) stays where it is.
@@ -126,13 +123,13 @@ fun MaskPanel(clip: Clip, onApply: (JSONObject) -> Unit, onClose: () -> Unit) {
         rest.forEach { masks.put(it) }
         onApply(JSONObject().put("masks", masks))
     }
-    ToolPanel("Mask", onClose = onClose, onConfirm = onClose) {
+    ToolPanel("Mask", onClose = onClose, options = ToolPanelOptions(onConfirm = onClose)) {
         Chips(MASK_SHAPES, shape, ::shapeLabel) {
             shape = it
             send()
         }
         if (shape != null) {
-            ValueSlider("Feather", feather, 0f..1f, { "${(it * 100).toInt()}%" }, onChange = { feather = it }, onDone = ::send)
+            ValueSlider("Feather", feather, 0f..1f, options = ValueSliderOptions({ "${(it * 100).toInt()}%" }, { feather = it }, onDone = ::send))
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 ChoiceChip("Keep inside", !invert, onClick = { invert = false; send() })
                 ChoiceChip("Keep outside", invert, onClick = { invert = true; send() })
@@ -180,8 +177,8 @@ fun AnimationPanel(clip: Clip, onApply: (JSONObject) -> Unit, onClose: () -> Uni
         onApply(JSONObject().put("motion", if (out.length() == 0) JSONObject.NULL else out))
     }
     // An entrance and an exit share the clip; each may take up to half of it.
-    val most = if (phase == Phase.Loop) 4f else (clip.duration / 2).coerceIn(0.1, 3.0).toFloat()
-    ToolPanel("Animation", onClose = onClose, onConfirm = onClose) {
+    val most = animationMaxDuration(phase, clip.duration)
+    ToolPanel("Animation", onClose = onClose, options = ToolPanelOptions(onConfirm = onClose)) {
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             for (each in Phase.entries) {
                 ChoiceChip(each.title + if (kinds[each] != null) " •" else "", phase == each, onClick = {
@@ -197,14 +194,10 @@ fun AnimationPanel(clip: Clip, onApply: (JSONObject) -> Unit, onClose: () -> Uni
             send()
         }
         if (shown != null) {
-            ValueSlider(
-                if (phase == Phase.Loop) "One lap" else "Length",
-                length.coerceAtMost(most),
-                0.1f..most,
-                { "%.1fs".format(it) },
-                onChange = { length = it },
-                onDone = ::send,
-            )
+            ValueSlider(if (phase == Phase.Loop) "One lap" else "Length", length.coerceAtMost(most), 0.1f..most, options = ValueSliderOptions({ "%.1fs".format(it) }, { length = it }, onDone = ::send))
         }
     }
 }
+
+private fun animationMaxDuration(phase: Phase, duration: Double) =
+    if (phase == Phase.Loop) 4f else (duration / 2).coerceIn(0.1, 3.0).toFloat()

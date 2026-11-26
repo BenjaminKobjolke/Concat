@@ -39,6 +39,7 @@ import app.concat.editor.ui.components.AccentButton
 import app.concat.editor.ui.components.ConcatIcon
 import app.concat.editor.ui.components.IconAction
 import app.concat.editor.ui.components.ToolButton
+import app.concat.editor.ui.components.ToolButtonOptions
 import app.concat.editor.ui.icons.ConcatIcons
 import app.concat.editor.ui.shortTimecode
 import app.concat.editor.ui.theme.ConcatColors
@@ -47,6 +48,9 @@ import app.concat.editor.ui.theme.Dimens
 import app.concat.editor.ui.theme.Motion
 import app.concat.editor.ui.theme.Radii
 import app.concat.editor.ui.theme.Spacing
+import app.concat.editor.ui.components.IconAppearance
+import app.concat.editor.ui.components.IconActionOptions
+import app.concat.editor.ui.components.AccentButtonOptions
 internal enum class Menu { Root, Audio, Text }
 
 /** A tool's options, open above the toolbar. */
@@ -59,7 +63,7 @@ internal val CLIP_PANELS = setOf(Panel.Speed, Panel.Volume, Panel.Opacity, Panel
 internal class Tool(val icon: ImageVector, val label: String, val enabled: Boolean = true, val active: Boolean = false, val onClick: () -> Unit)
 
 /**
- * The editor, CapCut's way: a top bar, the preview (at most about 42% of
+ * The editor: a top bar, the preview (at most about 42% of
  * the height: the timeline is the product), the transport, the timeline,
  * and a scrollable toolbar whose tools open their options in a panel
  * above it. [startTool] opens a panel at once ("captions", "speech").
@@ -90,12 +94,12 @@ internal fun TopBar(context: TopBarContext) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(context.content.resolution, style = ConcatType.badge.copy(fontSize = 11.sp), color = ConcatColors.fg)
-                    ConcatIcon(ConcatIcons.ChevronDown, tint = ConcatColors.fgMuted, size = 14.dp)
+                    ConcatIcon(ConcatIcons.ChevronDown, appearance = IconAppearance(tint = ConcatColors.fgMuted, size = 14.dp))
                 }
             }
         }
         Spacer(Modifier.width(Spacing.sm))
-        AccentButton("Export", context.actions.onExport, enabled = context.content.canExport, height = 32.dp, modifier = Modifier.padding(end = Spacing.xs))
+        AccentButton("Export", context.actions.onExport, options = AccentButtonOptions(enabled = context.content.canExport, height = 32.dp, modifier = Modifier.padding(end = Spacing.xs)))
     }
 }
 
@@ -123,22 +127,14 @@ internal fun Transport(context: EditorTransportContext, keyframe: Boolean?) {
             style = ConcatType.timecode,
             modifier = Modifier.weight(1f),
         )
-        IconAction(if (ui.playing) ConcatIcons.Pause else ConcatIcons.Play, if (ui.playing) "Pause" else "Play", model::togglePlay, enabled = duration > 0, size = 24.dp, box = 44.dp)
+        IconAction(if (ui.playing) ConcatIcons.Pause else ConcatIcons.Play, if (ui.playing) "Pause" else "Play", model::togglePlay, options = IconActionOptions(enabled = duration > 0, size = 24.dp, box = 44.dp))
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
             if (keyframe != null) {
-                IconAction(
-                    if (keyframe) ConcatIcons.KeyframeFilled else ConcatIcons.Keyframe,
-                    "Keyframe",
-                    model::toggleKeyframe,
-                    tint = if (keyframe) ConcatColors.accent else ConcatColors.fg,
-                    size = 18.dp,
-                    box = 36.dp,
-                )
+                IconAction(if (keyframe) ConcatIcons.KeyframeFilled else ConcatIcons.Keyframe, "Keyframe", model::toggleKeyframe, options = IconActionOptions(tint = if (keyframe) ConcatColors.accent else ConcatColors.fg, size = 18.dp, box = 36.dp))
             }
-            IconAction(ConcatIcons.Undo, "Undo", model::undo, enabled = canUndo, size = 20.dp, box = 36.dp)
-            IconAction(ConcatIcons.Redo, "Redo", model::redo, enabled = canRedo, size = 20.dp, box = 36.dp)
-            IconAction(ConcatIcons.Maximize, if (fullscreen) "Leave full screen" else "Full screen", context.onFullscreen, size = 18.dp, box = 36.dp,
-                tint = if (fullscreen) ConcatColors.accent else ConcatColors.fg)
+            IconAction(ConcatIcons.Undo, "Undo", model::undo, options = IconActionOptions(enabled = canUndo, size = 20.dp, box = 36.dp))
+            IconAction(ConcatIcons.Redo, "Redo", model::redo, options = IconActionOptions(enabled = canRedo, size = 20.dp, box = 36.dp))
+            IconAction(ConcatIcons.Maximize, if (fullscreen) "Leave full screen" else "Full screen", context.onFullscreen, options = IconActionOptions(size = 18.dp, box = 36.dp, tint = if (fullscreen) ConcatColors.accent else ConcatColors.fg))
         }
     }
 }
@@ -161,11 +157,11 @@ internal fun Toolbar(tools: List<Tool>, key: String) {
                         Box(
                             Modifier.width(44.dp).fillMaxHeight().clip(RoundedCornerShape(Radii.md)).clickable(onClickLabel = "Back", onClick = tool.onClick),
                             contentAlignment = Alignment.Center,
-                        ) { ConcatIcon(tool.icon, size = 22.dp, label = "Back") }
+                        ) { ConcatIcon(tool.icon, appearance = IconAppearance(size = 22.dp, label = "Back")) }
                         Box(Modifier.width(1.dp).height(32.dp).background(ConcatColors.lineStrong))
                         Spacer(Modifier.width(Spacing.xs))
                     } else {
-                        ToolButton(tool.icon, tool.label, tool.onClick, active = tool.active, enabled = tool.enabled)
+                        ToolButton(tool.icon, tool.label, tool.onClick, options = ToolButtonOptions(active = tool.active, enabled = tool.enabled))
                     }
                 }
             }

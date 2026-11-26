@@ -48,6 +48,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import app.concat.editor.ui.components.ToolPanelOptions
 
 data class SpeechUi(
     val text: String = "",
@@ -163,7 +164,7 @@ fun SpeechSheet(speech: SpeechViewModel, editor: EditorViewModel, onDismiss: () 
         onDismiss()
     }
 
-    ToolPanel("Text to speech", onClose = close, scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+    ToolPanel("Text to speech", onClose = close, options = ToolPanelOptions(scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp))) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).imePadding().heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),

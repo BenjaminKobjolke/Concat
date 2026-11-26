@@ -104,6 +104,7 @@ import app.concat.editor.ui.theme.Motion
 import app.concat.editor.ui.theme.Radii
 import app.concat.editor.ui.theme.Spacing
 import kotlinx.coroutines.delay
+import app.concat.editor.ui.components.IconAppearance
 
 /** Which row of tools shows when nothing is selected. */
 @Composable
@@ -132,7 +133,7 @@ internal fun InlineTextEditor(clip: Clip, frameWidth: Dp, frameHeight: Dp, onDon
             Modifier.align(Alignment.TopEnd).padding(Spacing.sm).size(34.dp).clip(CircleShape).background(ConcatColors.accent)
                 .clickable(onClickLabel = "Done") { onDone(content) },
             contentAlignment = Alignment.Center,
-        ) { ConcatIcon(ConcatIcons.Check, tint = ConcatColors.onAccent, size = 20.dp, label = "Done") }
+        ) { ConcatIcon(ConcatIcons.Check, appearance = IconAppearance(tint = ConcatColors.onAccent, size = 20.dp, label = "Done")) }
     }
 }
 

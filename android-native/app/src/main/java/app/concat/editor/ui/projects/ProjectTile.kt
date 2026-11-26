@@ -85,6 +85,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import app.concat.editor.ui.components.IconAppearance
+import app.concat.editor.ui.components.IconActionOptions
 
 internal data class ProjectTileActions(
     val onOpen: (ProjectInfo) -> Unit,
@@ -128,11 +130,11 @@ private fun ProjectTileArtwork(
             Box(
                 Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color.hsv(hue, 0.35f, 0.32f), Color.hsv((hue + 40) % 360f, 0.4f, 0.14f)))),
                 contentAlignment = Alignment.Center,
-            ) { ConcatIcon(ConcatIcons.Film, tint = Color.White.copy(alpha = 0.5f), size = 28.dp) }
+            ) { ConcatIcon(ConcatIcons.Film, appearance = IconAppearance(tint = Color.White.copy(alpha = 0.5f), size = 28.dp)) }
         }
         ProjectTileBadges(card)
         Box(Modifier.align(Alignment.TopEnd)) {
-            IconAction(ConcatIcons.More, "More", { menu.value = true }, tint = Color.White, size = 18.dp, box = 36.dp)
+            IconAction(ConcatIcons.More, "More", { menu.value = true }, options = IconActionOptions(tint = Color.White, size = 18.dp, box = 36.dp))
             ProjectTileMenu(card, menu, actions)
         }
     }
@@ -161,15 +163,15 @@ private fun BoxScope.ProjectTileBadges(card: ProjectCard) {
 @Composable
 private fun ProjectTileMenu(card: ProjectCard, menu: MutableState<Boolean>, actions: ProjectTileActions) {
     DropdownMenu(expanded = menu.value, onDismissRequest = { menu.value = false }, containerColor = ConcatColors.launchRaised) {
-        DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { ConcatIcon(ConcatIcons.TextMark, size = 18.dp) }, onClick = {
+        DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { ConcatIcon(ConcatIcons.TextMark, appearance = IconAppearance(size = 18.dp)) }, onClick = {
             menu.value = false
             actions.onRename(card.info)
         })
-        DropdownMenuItem(text = { Text("Duplicate") }, leadingIcon = { ConcatIcon(ConcatIcons.Copy, size = 18.dp) }, onClick = {
+        DropdownMenuItem(text = { Text("Duplicate") }, leadingIcon = { ConcatIcon(ConcatIcons.Copy, appearance = IconAppearance(size = 18.dp)) }, onClick = {
             menu.value = false
             actions.onDuplicate(card.info)
         })
-        DropdownMenuItem(text = { Text("Delete", color = ConcatColors.danger) }, leadingIcon = { ConcatIcon(ConcatIcons.Trash, tint = ConcatColors.danger, size = 18.dp) }, onClick = {
+        DropdownMenuItem(text = { Text("Delete", color = ConcatColors.danger) }, leadingIcon = { ConcatIcon(ConcatIcons.Trash, appearance = IconAppearance(tint = ConcatColors.danger, size = 18.dp)) }, onClick = {
             menu.value = false
             actions.onDelete(card.info)
         })

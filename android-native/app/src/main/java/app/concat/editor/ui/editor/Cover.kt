@@ -24,12 +24,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import app.concat.editor.ui.components.AccentButton
 import app.concat.editor.ui.components.GhostButton
+import app.concat.editor.ui.components.GhostButtonOptions
 import app.concat.editor.ui.components.PanelLabel
 import app.concat.editor.ui.components.ToolPanel
 import app.concat.editor.ui.icons.ConcatIcons
 import app.concat.editor.ui.theme.ConcatColors
 import app.concat.editor.ui.theme.Radii
 import app.concat.editor.ui.theme.Spacing
+import app.concat.editor.ui.components.AccentButtonOptions
+import app.concat.editor.ui.components.ToolPanelOptions
 
 /**
  * The cover (`setCover`): the frame under the playhead, a picture from the
@@ -37,15 +40,8 @@ import app.concat.editor.ui.theme.Spacing
  * card and the timeline's cover square show.
  */
 @Composable
-fun CoverPanel(
-    cover: Bitmap?,
-    named: Boolean,
-    onFrame: () -> Unit,
-    onPicture: () -> Unit,
-    onReset: () -> Unit,
-    onClose: () -> Unit,
-) {
-    ToolPanel("Cover", onClose = onClose, onConfirm = onClose) {
+fun CoverPanel(cover: Bitmap?, named: Boolean, actions: CoverPanelActions) {
+    ToolPanel("Cover", onClose = actions.onClose, options = ToolPanelOptions(onConfirm = actions.onClose)) {
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(72.dp).clip(RoundedCornerShape(Radii.sm)).background(ConcatColors.raised),
@@ -59,11 +55,18 @@ fun CoverPanel(
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 PanelLabel(if (named) "Shown on the project's card." else "A frame early in the edit, until you choose one.")
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    AccentButton("This frame", onFrame, icon = ConcatIcons.Frame)
-                    GhostButton("From photos", onPicture, icon = ConcatIcons.Image)
+                    AccentButton("This frame", actions.onFrame, options = AccentButtonOptions(icon = ConcatIcons.Frame))
+                    GhostButton("From photos", actions.onPicture, options = GhostButtonOptions(icon = ConcatIcons.Image))
                 }
-                if (named) GhostButton("Use the edit's", onReset, icon = ConcatIcons.Reset)
+                if (named) GhostButton("Use the edit's", actions.onReset, options = GhostButtonOptions(icon = ConcatIcons.Reset))
             }
         }
     }
 }
+
+data class CoverPanelActions(
+    val onFrame: () -> Unit,
+    val onPicture: () -> Unit,
+    val onReset: () -> Unit,
+    val onClose: () -> Unit,
+)

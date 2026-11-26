@@ -9,20 +9,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -30,7 +23,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
@@ -42,7 +34,6 @@ import app.concat.editor.api.JobTracker
 import app.concat.editor.api.errorMessage
 import app.concat.editor.api.wasCancelled
 import app.concat.editor.concat
-import app.concat.editor.ui.Palette
 import app.concat.editor.ui.components.ToolPanel
 import app.concat.editor.ui.theme.ConcatColors
 import app.concat.editor.ui.timecode
@@ -52,6 +43,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import app.concat.editor.ui.components.ToolPanelOptions
 
 /** The languages offered; null is "find it by ear". */
 val CAPTION_LANGUAGES: List<Pair<String?, String>> = listOf(
@@ -181,6 +173,7 @@ fun CaptionsSheet(captions: CaptionsViewModel, editor: EditorViewModel, preferCl
     val models by store.state.collectAsStateWithLifecycle()
     val view = editorUi.view
     val sound: List<Clip> = view?.clips?.filter { it.kind.hasSound } ?: emptyList()
+    val data = CaptionsSheetData(ui, sound, models, store, captions, view, editor, onDismiss)
 
     LaunchedEffect(Unit) { store.refresh() }
     LaunchedEffect(preferClip, sound.size) {
@@ -193,80 +186,20 @@ fun CaptionsSheet(captions: CaptionsViewModel, editor: EditorViewModel, preferCl
         }
     }
 
-    ToolPanel("Auto captions", onClose = onDismiss, scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+    ToolPanel("Auto captions", onClose = onDismiss, options = ToolPanelOptions(scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp))) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).imePadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ui.error?.let { Text(it, color = ConcatColors.warn, fontSize = 12.sp) }
             when (ui.step) {
-                CaptionsStep.Setup -> Column(
-                    Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    if (sound.isEmpty()) {
-                        SectionLabel("Add a video or a sound with speech in it first.")
-                    } else {
-                        SectionLabel("Clip")
-                        ChoiceChips(sound.map { it.id }, ui.clipId ?: "", { id ->
-                            val clip = sound.first { it.id == id }
-                            "${clip.name.ifBlank { clip.kind.name }.take(18)} at ${timecode(clip.start, view?.fps ?: 30.0)}"
-                        }, captions::chooseClip)
-                    }
-                    SectionLabel("Speech model")
-                    ModelPicker(models.info.transcribers, ui.model, models.downloads, { captions.chooseModel(it.id) }, store::download)
-                    val englishOnly = models.info.transcribers.firstOrNull { it.id == ui.model }?.englishOnly == true
-                    if (!englishOnly) {
-                        SectionLabel("Language")
-                        ChoiceChips(CAPTION_LANGUAGES, CAPTION_LANGUAGES.first { it.first == ui.language }, { it.second }) {
-                            captions.chooseLanguage(it.first)
-                        }
-                    }
-                    SectionLabel("Placement")
-                    ChoiceChips(listOf("top", "middle", "bottom"), ui.placement, { it.replaceFirstChar(Char::uppercase) }, captions::choosePlacement)
-                    SectionLabel("Size")
-                    ChoiceChips(listOf("small", "medium", "large"), ui.size, { it.replaceFirstChar(Char::uppercase) }, captions::chooseSize)
-                    Button(
-                        onClick = captions::transcribe,
-                        enabled = ui.clipId != null && models.info.transcribers.any { it.id == ui.model && it.downloaded },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Transcribe") }
-                }
+                CaptionsStep.Setup -> CaptionsSetup(data)
                 CaptionsStep.Hearing -> {
                     JobProgress(ui.stage, ui.fraction)
                     SectionLabel("It carries on if you close this panel.")
                     OutlinedButton(onClick = captions::cancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
                 }
-                CaptionsStep.Review -> {
-                    SectionLabel("${ui.segments.size} lines heard. Correct any before placing them.")
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        itemsIndexed(ui.segments) { index, segment ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    timecode(segment.start, view?.fps ?: 30.0),
-                                    color = Palette.muted,
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(end = 8.dp),
-                                )
-                                OutlinedTextField(
-                                    value = segment.text,
-                                    onValueChange = { captions.editSegment(index, it) },
-                                    modifier = Modifier.weight(1f),
-                                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                                    maxLines = 3,
-                                )
-                            }
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = captions::discard, modifier = Modifier.weight(1f)) { Text("Discard") }
-                        Button(
-                            onClick = { captions.place(editor, onDismiss) },
-                            enabled = ui.segments.any { it.text.isNotBlank() },
-                            modifier = Modifier.weight(1f),
-                        ) { Text("Place") }
-                    }
-                }
+                CaptionsStep.Review -> CaptionsReview(data)
             }
             Spacer(Modifier.navigationBarsPadding().padding(bottom = 8.dp))
         }

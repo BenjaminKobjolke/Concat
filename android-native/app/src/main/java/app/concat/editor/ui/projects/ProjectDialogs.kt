@@ -83,6 +83,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import app.concat.editor.ui.components.IconAppearance
 
 internal data class ProjectDialogState(
     val creating: String?,
@@ -151,7 +152,7 @@ fun NewProjectCard(onClick: () -> Unit) {
     ) {
         Row(Modifier.padding(horizontal = Spacing.xl), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(56.dp).clip(CircleShape).background(ConcatColors.accent), contentAlignment = Alignment.Center) {
-                ConcatIcon(ConcatIcons.Plus, tint = ConcatColors.onAccent, size = 28.dp)
+                ConcatIcon(ConcatIcons.Plus, appearance = IconAppearance(tint = ConcatColors.onAccent, size = 28.dp))
             }
             Spacer(Modifier.width(Spacing.lg))
             Column {
@@ -178,7 +179,7 @@ fun QuickAction(content: QuickActionContent, modifier: Modifier, onClick: () -> 
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(32.dp).clip(CircleShape).background(ConcatColors.raised), contentAlignment = Alignment.Center) {
-                ConcatIcon(icon, tint = if (enabled) ConcatColors.accent else ConcatColors.fgDim, size = 18.dp)
+                ConcatIcon(icon, appearance = IconAppearance(tint = if (enabled) ConcatColors.accent else ConcatColors.fgDim, size = 18.dp))
             }
             Spacer(Modifier.weight(1f))
             if (note != null) {
@@ -203,7 +204,7 @@ fun SearchField(query: String, onChange: (String) -> Unit) {
                 Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(Radii.md)).background(ConcatColors.launchField).padding(horizontal = Spacing.md),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ConcatIcon(ConcatIcons.Search, tint = ConcatColors.fgDim, size = 18.dp)
+                ConcatIcon(ConcatIcons.Search, appearance = IconAppearance(tint = ConcatColors.fgDim, size = 18.dp))
                 Spacer(Modifier.width(Spacing.sm))
                 Box(Modifier.weight(1f)) {
                     if (query.isEmpty()) Text("Search projects", style = ConcatType.body, color = ConcatColors.fgDim)

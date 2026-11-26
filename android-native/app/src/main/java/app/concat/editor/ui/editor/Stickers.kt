@@ -36,6 +36,7 @@ import app.concat.editor.ui.theme.ConcatColors
 import app.concat.editor.ui.theme.ConcatType
 import app.concat.editor.ui.theme.Radii
 import app.concat.editor.ui.theme.Spacing
+import app.concat.editor.ui.components.ToolPanelOptions
 
 /** How a card is named and drawn: the window's Stickers page, line for line (media-pane.slint). */
 private class CardLook(val label: String, val path: String)
@@ -68,7 +69,7 @@ fun stickerName(card: ShapeCard): String = LOOKS[card.id]?.label ?: card.id
  */
 @Composable
 fun StickersPanel(cards: List<ShapeCard>, onPick: (ShapeCard) -> Unit, onClose: () -> Unit) {
-    ToolPanel("Stickers", onClose = onClose, onConfirm = onClose) {
+    ToolPanel("Stickers", onClose = onClose, options = ToolPanelOptions(onConfirm = onClose)) {
         if (cards.isEmpty()) {
             PanelLabel("The stickers are on their way.")
             return@ToolPanel

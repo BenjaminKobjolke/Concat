@@ -52,125 +52,110 @@ import app.concat.editor.ui.theme.Spacing
 
 /** One of the desktop's glyphs, tinted. */
 @Composable
-fun ConcatIcon(icon: ImageVector, modifier: Modifier = Modifier, tint: Color = ConcatColors.fg, size: Dp = 22.dp, label: String? = null) {
-    Icon(icon, contentDescription = label, tint = tint, modifier = modifier.size(size))
+fun ConcatIcon(icon: ImageVector, modifier: Modifier = Modifier, appearance: IconAppearance = IconAppearance()) {
+    Icon(icon, contentDescription = appearance.label, tint = appearance.tint, modifier = modifier.size(appearance.size))
 }
+
+
 
 /** A round icon button: 40dp to touch, the glyph at 22. */
 @Composable
-fun IconAction(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    tint: Color = ConcatColors.fg,
-    size: Dp = 22.dp,
-    box: Dp = 40.dp,
-) {
+fun IconAction(icon: ImageVector, label: String, onClick: () -> Unit, options: IconActionOptions = IconActionOptions()) {
     Box(
-        modifier
-            .size(box)
+        options.modifier
+            .size(options.box)
             .clip(CircleShape)
-            .clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick)
-            .alpha(if (enabled) 1f else 0.35f),
+            .clickable(enabled = options.enabled, role = Role.Button, onClickLabel = label, onClick = onClick)
+            .alpha(if (options.enabled) 1f else 0.35f),
         contentAlignment = Alignment.Center,
-    ) { ConcatIcon(icon, tint = tint, size = size, label = label) }
+    ) { ConcatIcon(icon, appearance = IconAppearance(options.tint, options.size, label)) }
 }
+
+
 
 /** The primary action: solid lime, dark ink. */
 @Composable
-fun AccentButton(
-    text: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    icon: ImageVector? = null,
-    height: Dp = 40.dp,
-) {
+fun AccentButton(text: String, onClick: () -> Unit, options: AccentButtonOptions = AccentButtonOptions()) {
     Row(
-        modifier
-            .height(height)
-            .clip(RoundedCornerShape(height / 2))
-            .background(if (enabled) ConcatColors.accent else ConcatColors.raised)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+        options.modifier
+            .height(options.height)
+            .clip(RoundedCornerShape(options.height / 2))
+            .background(if (options.enabled) ConcatColors.accent else ConcatColors.raised)
+            .clickable(enabled = options.enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = Spacing.lg),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
-        val ink = if (enabled) ConcatColors.onAccent else ConcatColors.fgDim
-        if (icon != null) {
-            ConcatIcon(icon, tint = ink, size = 18.dp)
+        val ink = if (options.enabled) ConcatColors.onAccent else ConcatColors.fgDim
+        if (options.icon != null) {
+            ConcatIcon(options.icon, appearance = IconAppearance(ink, 18.dp))
             Spacer(Modifier.width(Spacing.xs + 2.dp))
         }
         Text(text, style = ConcatType.label.copy(fontSize = 14.sp), color = ink, maxLines = 1)
     }
 }
 
+
+
 /** A quiet action: raised surface, light text. */
 @Composable
-fun GhostButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, icon: ImageVector? = null, height: Dp = 40.dp) {
+fun GhostButton(text: String, onClick: () -> Unit, options: GhostButtonOptions = GhostButtonOptions()) {
     Row(
-        modifier
-            .height(height)
-            .clip(RoundedCornerShape(height / 2))
+        options.modifier
+            .height(options.height)
+            .clip(RoundedCornerShape(options.height / 2))
             .background(ConcatColors.raised)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .clickable(enabled = options.enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = Spacing.lg)
-            .alpha(if (enabled) 1f else 0.4f),
+            .alpha(if (options.enabled) 1f else 0.4f),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
-        if (icon != null) {
-            ConcatIcon(icon, tint = ConcatColors.fg, size = 18.dp)
+        if (options.icon != null) {
+            ConcatIcon(options.icon, appearance = IconAppearance(tint = ConcatColors.fg, size = 18.dp))
             Spacer(Modifier.width(Spacing.xs + 2.dp))
         }
         Text(text, style = ConcatType.label.copy(fontSize = 14.sp), color = ConcatColors.fg, maxLines = 1)
     }
 }
 
+
+
 /** A choice among a few: lime outline and text when picked. */
 @Composable
-fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, options: ChoiceChipOptions = ChoiceChipOptions()) {
     val shape = RoundedCornerShape(16.dp)
     Box(
-        modifier
+        options.modifier
             .height(32.dp)
             .clip(shape)
             .background(if (selected) ConcatColors.accentSoft else ConcatColors.raised)
             .border(1.dp, if (selected) ConcatColors.accent else Color.Transparent, shape)
-            .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .clickable(enabled = options.enabled, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 14.dp)
-            .alpha(if (enabled) 1f else 0.4f),
+            .alpha(if (options.enabled) 1f else 0.4f),
         contentAlignment = Alignment.Center,
     ) {
         Text(text, style = ConcatType.label, color = if (selected) ConcatColors.accent else ConcatColors.fg, maxLines = 1)
     }
 }
 
+
+
 /** A labelled slider with its value on the right, lime on a dark rail. */
 @Composable
-fun ValueSlider(
-    label: String,
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    describe: (Float) -> String,
-    onChange: (Float) -> Unit,
-    modifier: Modifier = Modifier,
-    steps: Int = 0,
-    onDone: () -> Unit = {},
-) {
-    Column(modifier.fillMaxWidth()) {
+fun ValueSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, options: ValueSliderOptions) {
+    Column(options.modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = ConcatType.label, color = ConcatColors.fgMuted, modifier = Modifier.weight(1f))
-            Text(describe(value), style = ConcatType.timecode, color = ConcatColors.accent)
+            Text(options.describe(value), style = ConcatType.timecode, color = ConcatColors.accent)
         }
         Slider(
             value = value.coerceIn(range),
-            onValueChange = onChange,
-            onValueChangeFinished = onDone,
+            onValueChange = options.onChange,
+            onValueChangeFinished = options.onDone,
             valueRange = range,
-            steps = steps,
+            steps = options.steps,
             colors = SliderDefaults.colors(
                 thumbColor = ConcatColors.fgHot,
                 activeTrackColor = ConcatColors.accent,
@@ -183,24 +168,17 @@ fun ValueSlider(
     }
 }
 
+
+
 /**
- * A tool's options, CapCut's way: a panel over the bottom of the timeline,
+ * A tool's options: a panel over the bottom of the timeline,
  * above the toolbar, so the preview stays in sight. A title row with a
  * close mark and (when it confirms) a check; the body scrolls when tall.
  */
 @Composable
-fun ToolPanel(
-    title: String,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier,
-    onConfirm: (() -> Unit)? = null,
-    actions: @Composable () -> Unit = {},
-    scroll: Boolean = true,
-    padding: PaddingValues = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.xs),
-    content: @Composable ColumnScope.() -> Unit,
-) {
+fun ToolPanel(title: String, onClose: () -> Unit, options: ToolPanelOptions = ToolPanelOptions(), content: @Composable ColumnScope.() -> Unit) {
     Column(
-        modifier
+        options.modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(topStart = Radii.xl, topEnd = Radii.xl))
             .background(ConcatColors.launchPanel)
@@ -214,7 +192,7 @@ fun ToolPanel(
             Modifier.fillMaxWidth().height(44.dp).padding(horizontal = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconAction(ConcatIcons.Close, "Close", onClose, size = 20.dp)
+            IconAction(ConcatIcons.Close, "Close", onClose, options = IconActionOptions(size = 20.dp))
             Text(
                 title,
                 style = ConcatType.heading,
@@ -223,20 +201,20 @@ fun ToolPanel(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            actions()
-            if (onConfirm != null) {
+            options.actions()
+            if (options.onConfirm != null) {
                 Box(
                     Modifier.padding(end = Spacing.xs).size(34.dp).clip(CircleShape).background(ConcatColors.accent)
-                        .clickable(role = Role.Button, onClickLabel = "Done", onClick = onConfirm),
+                        .clickable(role = Role.Button, onClickLabel = "Done", onClick = options.onConfirm),
                     contentAlignment = Alignment.Center,
-                ) { ConcatIcon(ConcatIcons.Check, tint = ConcatColors.onAccent, size = 20.dp, label = "Done") }
+                ) { ConcatIcon(ConcatIcons.Check, appearance = IconAppearance(tint = ConcatColors.onAccent, size = 20.dp, label = "Done")) }
             }
         }
         // Weighted, so a body taller than the room left scrolls (or clips)
         // inside it rather than pushing the header out.
-        val body = Modifier.weight(1f, fill = false).fillMaxWidth().padding(padding)
+        val body = Modifier.weight(1f, fill = false).fillMaxWidth().padding(options.padding)
         Column(
-            if (scroll) body.verticalScroll(rememberScrollState()) else body,
+            if (options.scroll) body.verticalScroll(rememberScrollState()) else body,
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             content()
@@ -245,45 +223,41 @@ fun ToolPanel(
     }
 }
 
+
+
 /** One tool of the bottom toolbar: the glyph over its 11sp label. */
 @Composable
-fun ToolButton(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    active: Boolean = false,
-    enabled: Boolean = true,
-    width: Dp = 64.dp,
-) {
+fun ToolButton(icon: ImageVector, label: String, onClick: () -> Unit, options: ToolButtonOptions = ToolButtonOptions()) {
     Column(
-        modifier
-            .widthIn(min = width)
+        options.modifier
+            .widthIn(min = options.width)
             .fillMaxHeight()
             .clip(RoundedCornerShape(Radii.md))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(bounded = true, color = ConcatColors.accent),
-                enabled = enabled,
+                enabled = options.enabled,
                 role = Role.Button,
                 onClick = onClick,
             )
-            .alpha(if (enabled) 1f else 0.35f)
+            .alpha(if (options.enabled) 1f else 0.35f)
             .padding(horizontal = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        ConcatIcon(icon, tint = if (active) ConcatColors.accent else ConcatColors.fg, size = 24.dp)
+        ConcatIcon(icon, appearance = IconAppearance(if (options.active) ConcatColors.accent else ConcatColors.fg, 24.dp))
         Spacer(Modifier.height(6.dp))
         Text(
             label,
             style = ConcatType.caption,
-            color = if (active) ConcatColors.accent else ConcatColors.fgMuted,
+            color = if (options.active) ConcatColors.accent else ConcatColors.fgMuted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
 }
+
+
 
 /** A small label in the panels: what the next control is. */
 @Composable
