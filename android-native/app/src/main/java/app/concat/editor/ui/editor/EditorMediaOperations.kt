@@ -96,7 +96,7 @@ fun EditorViewModel.import(uris: List<Uri>, audio: Boolean) {
 
 /**
      * Picked pictures over the main track: each onto a new lane on top, at
-     * the playhead, as CapCut's Overlay does.
+     * the playhead.
      */
 fun EditorViewModel.importOverlay(uris: List<Uri>) {
         if (uris.isEmpty()) return
