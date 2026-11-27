@@ -36,12 +36,17 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.concat.editor.api.JobTracker
+import app.concat.editor.api.ModelInfo
+import app.concat.editor.api.VoiceItem
 import app.concat.editor.api.errorMessage
 import app.concat.editor.api.wasCancelled
 import app.concat.editor.concat
+import app.concat.editor.models.ModelStore
+import app.concat.editor.models.ModelsState
 import app.concat.editor.ui.Palette
 import app.concat.editor.ui.components.ToolPanel
 import app.concat.editor.ui.theme.ConcatColors
+import app.concat.editor.ui.theme.Spacing
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -164,10 +169,29 @@ fun SpeechSheet(speech: SpeechViewModel, editor: EditorViewModel, onDismiss: () 
         onDismiss()
     }
 
+    val content = SpeechSheetContentData(ui, speech, editor, store, models, model, voices, onDismiss)
     ToolPanel("Text to speech", onClose = close, options = ToolPanelOptions(scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp))) {
+        SpeechSheetContent(content)
+    }
+}
+
+private data class SpeechSheetContentData(
+    val ui: SpeechUi,
+    val speech: SpeechViewModel,
+    val editor: EditorViewModel,
+    val store: ModelStore,
+    val models: ModelsState,
+    val model: ModelInfo?,
+    val voices: List<VoiceItem>,
+    val onDismiss: () -> Unit,
+)
+
+@Composable
+private fun SpeechSheetContent(data: SpeechSheetContentData) {
+    val (ui, speech, editor, store, models, model, voices, onDismiss) = data
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp).imePadding().heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.lg).imePadding().heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             ui.error?.let { Text(it, color = ConcatColors.warn, fontSize = 12.sp) }
             OutlinedTextField(
@@ -181,7 +205,15 @@ fun SpeechSheet(speech: SpeechViewModel, editor: EditorViewModel, onDismiss: () 
                 enabled = !ui.running,
             )
             SectionLabel("Model")
-            ModelPicker(models.info.speech, ui.model, models.downloads, { speech.chooseModel(it.id) }, store::download)
+            ModelPicker(
+                ModelPickerOptions(
+                    models.info.speech,
+                    ui.model,
+                    models.downloads,
+                    { speech.chooseModel(it.id) },
+                    store::download,
+                ),
+            )
             if (voices.isNotEmpty()) {
                 SectionLabel("Voice")
                 ChoiceChips(voices.map { it.id }, ui.voice ?: -1, { id -> voiceName(voices.first { it.id == id }.name) }, speech::chooseVoice)
@@ -202,9 +234,8 @@ fun SpeechSheet(speech: SpeechViewModel, editor: EditorViewModel, onDismiss: () 
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Speak and place at playhead") }
             }
-            Spacer(Modifier.navigationBarsPadding().padding(bottom = 8.dp))
+            Spacer(Modifier.navigationBarsPadding().padding(bottom = Spacing.sm))
         }
-    }
 }
 
 /**

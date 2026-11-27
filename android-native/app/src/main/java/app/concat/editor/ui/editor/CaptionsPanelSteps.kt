@@ -29,6 +29,7 @@ import app.concat.editor.api.ProjectView
 import app.concat.editor.models.ModelStore
 import app.concat.editor.models.ModelsState
 import app.concat.editor.ui.Palette
+import app.concat.editor.ui.theme.Spacing
 import app.concat.editor.ui.timecode
 
 internal data class CaptionsSheetData(
@@ -46,7 +47,7 @@ internal data class CaptionsSheetData(
 internal fun CaptionsSetup(data: CaptionsSheetData) {
     Column(
         Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
         if (data.sound.isEmpty()) {
             SectionLabel("Add a video or a sound with speech in it first.")
@@ -58,7 +59,15 @@ internal fun CaptionsSetup(data: CaptionsSheetData) {
             }, data.captions::chooseClip)
         }
         SectionLabel("Speech model")
-        ModelPicker(data.models.info.transcribers, data.ui.model, data.models.downloads, { data.captions.chooseModel(it.id) }, data.store::download)
+        ModelPicker(
+            ModelPickerOptions(
+                data.models.info.transcribers,
+                data.ui.model,
+                data.models.downloads,
+                { data.captions.chooseModel(it.id) },
+                data.store::download,
+            ),
+        )
         val englishOnly = data.models.info.transcribers.firstOrNull { it.id == data.ui.model }?.englishOnly == true
         if (!englishOnly) {
             SectionLabel("Language")
@@ -81,14 +90,14 @@ internal fun CaptionsSetup(data: CaptionsSheetData) {
 @Composable
 internal fun CaptionsReview(data: CaptionsSheetData) {
     SectionLabel("${data.ui.segments.size} lines heard. Correct any before placing them.")
-    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         itemsIndexed(data.ui.segments) { index, segment ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     timecode(segment.start, data.view?.fps ?: 30.0),
                     color = Palette.muted,
                     fontSize = 11.sp,
-                    modifier = Modifier.padding(end = 8.dp),
+                    modifier = Modifier.padding(end = Spacing.sm),
                 )
                 OutlinedTextField(
                     value = segment.text,
@@ -100,7 +109,7 @@ internal fun CaptionsReview(data: CaptionsSheetData) {
             }
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         OutlinedButton(onClick = data.captions::discard, modifier = Modifier.weight(1f)) { Text("Discard") }
         Button(
             onClick = { data.captions.place(data.editor, data.onDismiss) },

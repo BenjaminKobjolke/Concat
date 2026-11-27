@@ -39,13 +39,17 @@ internal fun EditorPanelContent(panel: Panel?, room: Dp, context: EditorPanelCon
             Panel.Crop -> selected?.let { CropPanel(it, { patch -> model.setLook("Crop", patch) }, close) }
             Panel.Mask -> selected?.let { MaskPanel(it, { patch -> model.setLook("Mask", patch) }, close) }
             Panel.Animation -> selected?.let { AnimationPanel(it, { patch -> model.setLook("Animation", patch) }, close) }
-            Panel.TextNew -> TextPanel(null, { c, s, col, wt -> model.saveText(null, c, s, col, wt) }, close)
+            Panel.TextNew -> TextPanel(
+                TextPanelOptions(null, { c, s, col, wt -> model.saveText(null, c, s, col, wt) }, close),
+            )
             Panel.TextEdit -> selected?.let { clip ->
                 TextPanel(
-                    clip,
-                    { c, s, col, wt -> model.saveText(clip.id, c, s, col, wt) },
-                    close,
-                    caption = view?.tracks?.firstOrNull { it.id == clip.trackId }?.captions != null,
+                    TextPanelOptions(
+                        clip,
+                        { c, s, col, wt -> model.saveText(clip.id, c, s, col, wt) },
+                        close,
+                        caption = view?.tracks?.firstOrNull { it.id == clip.trackId }?.captions != null,
+                    ),
                 )
             }
             Panel.Effects -> PackagePanel(Shelf.Effects, catalogue, model, PackagePanelActions({ context.onCatalogue(Shelf.Effects, false) }, close))

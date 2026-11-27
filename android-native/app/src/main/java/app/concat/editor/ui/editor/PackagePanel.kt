@@ -100,41 +100,54 @@ fun PackagePanel(
         ),
     ) {
         ShelfStatus(state, clip, shelf)
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.lg),
-        ) {
-            if (shelf != Shelf.Transitions) {
-                item(key = "none") {
-                    PackageTileSmall(
-                        name = "None",
-                        options = PackageTileOptions(
-                            tint = null,
-                            selected = panel.links.isEmpty(),
-                            enabled = clip != null && panel.links.isNotEmpty(),
-                        ),
-                    ) {
-                        clip?.let { c -> editor.removeLinks(c.id, panel.links.map { it.first to it.second }) }
-                    }
-                }
-            }
-            items(panel.offered, key = { it.id }) { pkg ->
-                PackageTileSmall(
-                    name = pkg.name,
-                    options = PackageTileOptions(
-                        tint = tileColour(pkg),
-                        selected = pkg.id in panel.applied,
-                        enabled = clip != null || shelf == Shelf.Transitions,
-                    ),
-                ) { editor.applyPackage(pkg.kind, pkg.id, pkg.name) }
-            }
-        }
+        PackageTiles(PackageTilesData(shelf, clip, panel, editor))
         // The newest link's strength, live as the finger moves.
         val newest = newestPackageLink(panel.links)
         val pkg = newest?.let { catalogue.find(it.third.id) }
         val knob = pkg?.params?.firstOrNull { it.key == pkg.intensity } ?: pkg?.params?.firstOrNull { it.type == "float" || it.type == "int" }
         if (clip != null && newest != null && pkg != null && knob != null) {
             LinkStrength(LinkStrengthData(clip, newest.first, newest.second, newest.third, pkg, knob, editor))
+        }
+    }
+}
+
+private data class PackageTilesData(
+    val shelf: Shelf,
+    val clip: Clip?,
+    val panel: PackagePanelData,
+    val editor: EditorViewModel,
+)
+
+@Composable
+private fun PackageTiles(data: PackageTilesData) {
+    val (shelf, clip, panel, editor) = data
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.lg),
+    ) {
+        if (shelf != Shelf.Transitions) {
+            item(key = "none") {
+                PackageTileSmall(
+                    name = "None",
+                    options = PackageTileOptions(
+                        tint = null,
+                        selected = panel.links.isEmpty(),
+                        enabled = clip != null && panel.links.isNotEmpty(),
+                    ),
+                ) {
+                    clip?.let { c -> editor.removeLinks(c.id, panel.links.map { it.first to it.second }) }
+                }
+            }
+        }
+        items(panel.offered, key = { it.id }) { pkg ->
+            PackageTileSmall(
+                name = pkg.name,
+                options = PackageTileOptions(
+                    tint = tileColour(pkg),
+                    selected = pkg.id in panel.applied,
+                    enabled = clip != null || shelf == Shelf.Transitions,
+                ),
+            ) { editor.applyPackage(pkg.kind, pkg.id, pkg.name) }
         }
     }
 }
@@ -225,7 +238,7 @@ private fun PackageTileSmall(name: String, options: PackageTileOptions, onClick:
                 }
             }
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(Spacing.xs))
         Text(
             name,
             style = ConcatType.caption,

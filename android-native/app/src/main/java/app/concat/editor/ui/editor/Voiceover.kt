@@ -36,7 +36,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -50,6 +49,7 @@ import app.concat.editor.concat
 import app.concat.editor.ui.Palette
 import app.concat.editor.ui.components.ToolPanel
 import app.concat.editor.ui.theme.ConcatColors
+import app.concat.editor.ui.theme.Spacing
 import java.io.File
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -191,42 +191,57 @@ fun VoiceoverSheet(voiceover: VoiceoverViewModel, editor: EditorViewModel, onDis
 
     ToolPanel("Voiceover", onClose = close, options = ToolPanelOptions(scroll = false, padding = androidx.compose.foundation.layout.PaddingValues(0.dp))) {
         Column(
-            Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            Modifier.fillMaxWidth().padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             ui.error?.let { Text(it, color = ConcatColors.warn, fontSize = 12.sp) }
-            when (val state = ui.state) {
-                VoiceoverState.Idle -> {
-                    SectionLabel("Records from the microphone and lands at the playhead.")
-                    Button(
-                        onClick = ::begin,
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF375F)),
-                        modifier = Modifier.size(84.dp),
-                    ) { Text("Rec", fontWeight = FontWeight.Bold) }
-                }
-                is VoiceoverState.CountIn -> {
-                    Text("${state.seconds}", fontSize = 64.sp, fontWeight = FontWeight.Bold, color = Palette.text)
-                    OutlinedButton(onClick = voiceover::discard) { Text("Cancel") }
-                }
-                is VoiceoverState.Recording -> {
-                    val whole = state.elapsed.toLong()
-                    Text(
-                        "REC %d:%02d.%d".format(whole / 60, whole % 60, ((state.elapsed - whole) * 10).toInt()),
-                        color = Color(0xFFFF375F),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 20.sp,
-                    )
-                    LevelMeter(state.level)
-                    Button(onClick = {
-                        voiceover.stop(editor)
-                        onDismiss()
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Stop and place") }
-                    OutlinedButton(onClick = voiceover::discard, modifier = Modifier.fillMaxWidth()) { Text("Discard") }
-                }
-            }
-            Spacer(Modifier.height(4.dp).navigationBarsPadding())
+            VoiceoverStateContent(
+                ui.state,
+                VoiceoverSheetActions(
+                    onBegin = ::begin,
+                    onDiscard = voiceover::discard,
+                    onStop = { voiceover.stop(editor); onDismiss() },
+                ),
+            )
+            Spacer(Modifier.height(Spacing.xs).navigationBarsPadding())
+        }
+    }
+}
+
+private data class VoiceoverSheetActions(
+    val onBegin: () -> Unit,
+    val onDiscard: () -> Unit,
+    val onStop: () -> Unit,
+)
+
+@Composable
+private fun VoiceoverStateContent(state: VoiceoverState, actions: VoiceoverSheetActions) {
+    when (state) {
+        VoiceoverState.Idle -> {
+            SectionLabel("Records from the microphone and lands at the playhead.")
+            Button(
+                onClick = actions.onBegin,
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(containerColor = ConcatColors.danger),
+                modifier = Modifier.size(84.dp),
+            ) { Text("Rec", fontWeight = FontWeight.Bold) }
+        }
+        is VoiceoverState.CountIn -> {
+            Text("${state.seconds}", fontSize = 64.sp, fontWeight = FontWeight.Bold, color = Palette.text)
+            OutlinedButton(onClick = actions.onDiscard) { Text("Cancel") }
+        }
+        is VoiceoverState.Recording -> {
+            val whole = state.elapsed.toLong()
+            Text(
+                "REC %d:%02d.%d".format(whole / 60, whole % 60, ((state.elapsed - whole) * 10).toInt()),
+                color = ConcatColors.danger,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 20.sp,
+            )
+            LevelMeter(state.level)
+            Button(onClick = actions.onStop, modifier = Modifier.fillMaxWidth()) { Text("Stop and place") }
+            OutlinedButton(onClick = actions.onDiscard, modifier = Modifier.fillMaxWidth()) { Text("Discard") }
         }
     }
 }
@@ -238,9 +253,9 @@ private fun LevelMeter(level: Float) {
         // Amplitude is linear; a square root reads more like loudness.
         val shown = kotlin.math.sqrt(level.toDouble()).toFloat().coerceIn(0f, 1f)
         val colour = when {
-            shown > 0.92f -> Color(0xFFFF375F)
-            shown > 0.75f -> Color(0xFFFFD60A)
-            else -> Color(0xFF30D158)
+            shown > 0.92f -> ConcatColors.meterHigh
+            shown > 0.75f -> ConcatColors.meterMid
+            else -> ConcatColors.meterLow
         }
         Box(Modifier.fillMaxWidth(shown).fillMaxHeight().background(colour))
     }

@@ -33,6 +33,7 @@ import app.concat.editor.models.ModelDownload
 import app.concat.editor.models.sizeLabel
 import app.concat.editor.ui.Palette
 import app.concat.editor.ui.components.IconAppearance
+import app.concat.editor.ui.theme.Spacing
 
 @Composable
 fun SheetTitle(text: String) = Text(text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
@@ -43,7 +44,7 @@ fun SectionLabel(text: String) = Text(text, color = Palette.muted, fontSize = 12
 /** One choice of a few, as chips in a row that scrolls when it must. */
 @Composable
 fun <T> ChoiceChips(options: List<T>, selected: T, label: (T) -> String, onSelect: (T) -> Unit) {
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         for (option in options) {
             FilterChip(selected = option == selected, onClick = { onSelect(option) }, label = { Text(label(option)) })
         }
@@ -66,46 +67,51 @@ fun ModelFacts(model: ModelInfo) {
 }
 
 @Composable
-fun ModelPicker(
-    models: List<ModelInfo>,
-    selected: String?,
-    downloads: Map<String, ModelDownload>,
-    onSelect: (ModelInfo) -> Unit,
-    onDownload: (ModelInfo) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (models.isEmpty()) SectionLabel("No models on offer.")
-        for (model in models) {
-            val picked = model.id == selected
-            val downloading = downloads[model.id]
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                    .background(if (picked) Palette.raised else Palette.surface)
-                    .border(if (picked) 1.5.dp else 0.dp, if (picked) Palette.accent else Palette.surface, RoundedCornerShape(10.dp))
-                    .clickable(enabled = model.downloaded) { onSelect(model) }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(model.label, color = Palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        ModelFacts(model)
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    when {
-                        downloading != null -> Text(
-                            if (downloading.unpacking) "Unpacking" else "${(downloading.fraction * 100).toInt()}%",
-                            color = Palette.accent,
-                            fontSize = 12.sp,
-                        )
-                        !model.downloaded -> OutlinedButton(onClick = { onDownload(model) }) { Text("Download") }
-                        picked -> app.concat.editor.ui.components.ConcatIcon(app.concat.editor.ui.icons.ConcatIcons.Check, appearance = app.concat.editor.ui.components.IconAppearance(tint = Palette.accent, size = 20.dp))
-                    }
-                }
-                if (downloading != null) {
-                    Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(progress = { downloading.fraction }, modifier = Modifier.fillMaxWidth())
-                }
+fun ModelPicker(options: ModelPickerOptions) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        if (options.models.isEmpty()) SectionLabel("No models on offer.")
+        for (model in options.models) ModelPickerRow(model, options)
+    }
+}
+
+data class ModelPickerOptions(
+    val models: List<ModelInfo>,
+    val selected: String?,
+    val downloads: Map<String, ModelDownload>,
+    val onSelect: (ModelInfo) -> Unit,
+    val onDownload: (ModelInfo) -> Unit,
+)
+
+@Composable
+private fun ModelPickerRow(model: ModelInfo, options: ModelPickerOptions) {
+    val picked = model.id == options.selected
+    val downloading = options.downloads[model.id]
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .background(if (picked) Palette.raised else Palette.surface)
+            .border(if (picked) 1.5.dp else 0.dp, if (picked) Palette.accent else Palette.surface, RoundedCornerShape(10.dp))
+            .clickable(enabled = model.downloaded) { options.onSelect(model) }
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(model.label, color = Palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                ModelFacts(model)
             }
+            Spacer(Modifier.width(Spacing.sm))
+            when {
+                downloading != null -> Text(
+                    if (downloading.unpacking) "Unpacking" else "${(downloading.fraction * 100).toInt()}%",
+                    color = Palette.accent,
+                    fontSize = 12.sp,
+                )
+                !model.downloaded -> OutlinedButton(onClick = { options.onDownload(model) }) { Text("Download") }
+                picked -> app.concat.editor.ui.components.ConcatIcon(app.concat.editor.ui.icons.ConcatIcons.Check, appearance = app.concat.editor.ui.components.IconAppearance(tint = Palette.accent, size = 20.dp))
+            }
+        }
+        if (downloading != null) {
+            Spacer(Modifier.height(Spacing.sm))
+            LinearProgressIndicator(progress = { downloading.fraction }, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -113,7 +119,7 @@ fun ModelPicker(
 /** A job's progress: what it is doing and how far. */
 @Composable
 fun JobProgress(stage: String, fraction: Float) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         if (fraction > 0f) {
             LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
         } else {
