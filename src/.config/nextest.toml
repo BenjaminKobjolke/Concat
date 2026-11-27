@@ -39,6 +39,16 @@ store-failure-output = true
 filter = "test(=every_edit_still_exports)"
 slow-timeout = { period = "60s", terminate-after = 12 }
 
+# These timing-sensitive tests spawn worker processes or depend on prompt GPU
+# cancellation. Running them beside the full workspace can starve either path.
+[[profile.ci.overrides]]
+filter = "test(a_worker_that_crashes_elsewhere_fails_and_is_not_tried_again)"
+threads-required = "num-test-threads"
+
+[[profile.ci.overrides]]
+filter = "test(a_cancelled_export_lets_go_within_a_second_at_every_stage)"
+threads-required = "num-test-threads"
+
 # The corpus (concat-corpus) exports through the GPU compositor and the
 # platform's encoder, one case a test. One case at a time: side by side
 # on a runner's software adapter they compete for the same cores and the
