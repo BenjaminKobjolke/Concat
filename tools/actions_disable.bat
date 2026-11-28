@@ -1,0 +1,1 @@
+gh api --method PUT repos/BenjaminKobjolke/Concat/actions/permissions -F enabled=false
