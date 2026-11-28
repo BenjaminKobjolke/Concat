@@ -13,10 +13,13 @@ import androidx.lifecycle.viewModelScope
 import app.concat.editor.api.AppliedEffect
 import app.concat.editor.api.ClipBounds
 import app.concat.editor.api.ClipKind
+import app.concat.editor.api.ClipTransform
 import app.concat.editor.api.Commands
 import app.concat.editor.api.JobTracker
 import app.concat.editor.api.ProjectView
 import app.concat.editor.api.ShapeCard
+import app.concat.editor.api.TextStyleRequest
+import app.concat.editor.api.VideoSettings
 import app.concat.editor.api.errorMessage
 import app.concat.editor.api.wasCancelled
 import app.concat.editor.concat
@@ -92,7 +95,7 @@ fun EditorViewModel.flip() {
      * fractions of the frame, clockwise degrees.
      */
 fun EditorViewModel.setTransform(clipId: String, scale: Double, offsetX: Double, offsetY: Double, rotation: Double) {
-        change("Move") { apply(Commands.setClipTransform(clipId, scale, offsetX, offsetY, rotation)) }
+        change("Move") { apply(Commands.setClipTransform(clipId, ClipTransform(scale, offsetX, offsetY, rotation))) }
     }
 
 fun EditorViewModel.resetTransform() {
@@ -128,7 +131,7 @@ fun EditorViewModel.toggleKeyframe() {
 fun EditorViewModel.setAspect(width: Int, height: Int) {
         val view = _ui.value.view ?: return
         if (view.width == width && view.height == height) return
-        change("Aspect") { api.setVideo(path, width, height, view.rateNum, view.rateDen) }
+        change("Aspect") { api.setVideo(path, VideoSettings(width, height, view.rateNum, view.rateDen)) }
     }
 
 fun EditorViewModel.setBackground(background: JSONObject) {
@@ -164,14 +167,14 @@ fun EditorViewModel.saveText(clipId: String?, content: String, fontSize: Double,
             if (existing != null && lane != null && captions != null) {
                 // A caption: its words are its own, its look is the lane's,
                 // and the lane's look restyles every caption on it - one edit.
-                val words = Commands.updateClip(existing.id, JSONObject().put("text", Commands.textStyle(content, fontSize, color, existing.text, fontWeight)))
-                val style = Commands.textStyle("", fontSize, color, captions.optJSONObject("style"), fontWeight)
+                val words = Commands.updateClip(existing.id, JSONObject().put("text", Commands.textStyle(TextStyleRequest(content, fontSize, color, existing.text, fontWeight))))
+                val style = Commands.textStyle(TextStyleRequest("", fontSize, color, captions.optJSONObject("style"), fontWeight))
                 val look = JSONObject(captions.toString()).put("style", style)
                 apply(Commands.batch(listOf(words, Commands.setCaptionLook(lane.id, look))))
             } else if (existing != null) {
-                apply(Commands.updateClip(existing.id, JSONObject().put("text", Commands.textStyle(content, fontSize, color, existing.text, fontWeight))))
+                apply(Commands.updateClip(existing.id, JSONObject().put("text", Commands.textStyle(TextStyleRequest(content, fontSize, color, existing.text, fontWeight)))))
             } else {
-                val view = apply(Commands.addTextClip(_ui.value.position, Commands.textStyle(content, fontSize, color, fontWeight = fontWeight)))
+                val view = apply(Commands.addTextClip(_ui.value.position, Commands.textStyle(TextStyleRequest(content, fontSize, color, fontWeight = fontWeight))))
                 view.createdId?.let { id -> _ui.update { it.copy(selected = id) } }
                 view
             }

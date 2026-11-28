@@ -216,6 +216,11 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
      */
     fun edit(label: String, body: suspend () -> ProjectView?) = change(label, body)
 
+    /**
+     * A clip dragged to [start] on [target]: `moveClips`, or onto a new lane
+     * `moveClipsToNewTrack`, which makes the lane and moves the clip in one
+     * undo step.
+     */
     internal val liveChains = Channel<Triple<String, String, List<JSONObject>>>(Channel.CONFLATED)
 
     init {
@@ -236,6 +241,10 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
+    /**
+     * One link of a chain changed as a slider moves: the newest whole chain
+     * wins, so a drag sends only what the engine can keep up with.
+     */
     internal val reverses = JobTracker("reverse", ::onReverse)
 
     init {
@@ -260,21 +269,7 @@ class EditorViewModel(application: Application, val path: String) : AndroidViewM
         }
     }
 
-    internal fun copyIn(uri: Uri): File {
-        val resolver = getApplication<Application>().contentResolver
-        var name = "picked-${System.currentTimeMillis()}"
-        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
-            if (it.moveToFirst()) name = it.getString(0) ?: name
-        }
-        // Each pick its own file: two picks of one name are two files.
-        val target = File(app.mediaDir, "${System.currentTimeMillis()}-${name.replace('/', '_')}")
-        val input = resolver.openInputStream(uri) ?: throw IOException("The provider would not open $uri")
-        input.use { stream -> target.outputStream().use { stream.copyTo(it, 1 shl 20) } }
-        return target
-    }
-
-
-            override fun onCleared() {
+    override fun onCleared() {
         val shown = preview
         preview = null
         if (shown != null) app.scope.launch(Dispatchers.IO) { shown.release() }

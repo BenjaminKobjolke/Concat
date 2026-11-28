@@ -5,6 +5,7 @@ package app.concat.editor
 
 import android.util.Log
 import app.concat.editor.api.Commands
+import app.concat.editor.api.ProjectCreation
 import app.concat.editor.export.EXPORT_PRESETS
 import app.concat.editor.export.ExportState
 import java.io.File
@@ -41,7 +42,7 @@ object Smoke {
             try {
                 Log.i(TAG, "smoke: exporting ${clip.absolutePath}")
                 File(app.projectsDir, "smoke").deleteRecursively()
-                val path = app.api.createProject(app.projectsDir.absolutePath, "smoke", 1080, 1920, 30)
+                val path = app.api.createProject(ProjectCreation(app.projectsDir.absolutePath, "smoke", 1080, 1920, 30))
                 val imported = app.api.import(path, clip.absolutePath)
                 val media = imported.media.firstOrNull { it.path == clip.absolutePath } ?: imported.media.first()
                 app.api.apply(path, Commands.addClipsInSequence(listOf(media.id), 0.0))

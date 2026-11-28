@@ -47,11 +47,13 @@ internal fun EditorPreviewArea(context: EditorPreviewContext) {
                 PreviewSurface(model, Modifier.fillMaxSize())
                 if (ui.previewSlower) SlowerPreviewNote(Modifier.align(Alignment.BottomCenter))
                 PreviewOverlay(
-                    view = view,
-                    position = ui.position,
-                    selected = if (context.inlineEdit != null) null else ui.selected,
-                    mainTrackId = context.mainTrackId,
-                    bounds = ui.bounds,
+                    content = PreviewOverlayContent(
+                        view,
+                        ui.position,
+                        if (context.inlineEdit != null) null else ui.selected,
+                        context.mainTrackId,
+                        ui.bounds,
+                    ),
                     onSelect = context.onSelect,
                     onCommit = { id, p -> model.setTransform(id, p.scale, p.offsetX, p.offsetY, p.rotation) },
                     onEditText = {

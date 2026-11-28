@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use concat_project::Command;
+use concat_doc::commands::Command;
 
 use crate::studio::Studio;
 use crate::ui::{TimelineTool, TrackSize};
@@ -68,6 +68,8 @@ pub enum TimelineMsg {
     /// The tray's meter button: the VU meters shown or put away.
     MetersShownChanged(bool),
     PreviewAxisChanged(bool),
+    /// The toolbar's playhead-snap button; see `Preferences::playhead_snap`.
+    PlayheadSnapChanged(bool),
     /// The button's menu: whether the sound under the pointer plays too.
     PreviewAxisAudioChanged(bool),
     /// The pointer is over the lanes at this many seconds.
@@ -144,8 +146,9 @@ impl TimelinePane {
                 studio.prefs.save(&studio.host.dirs);
             }
             TimelineMsg::LinkageChanged(on) => {
-                let timeline_id = studio.timeline().id.clone();
-                studio.apply(Command::SetTimelineLinkage { timeline_id, on });
+                if let Some(sequence) = crate::doc_view::showing(studio.doc()) {
+                    studio.apply(Command::SetTimelineLinkage { sequence, on });
+                }
             }
             TimelineMsg::MagneticToggled => {
                 let on = !studio.prefs.magnetic();
@@ -167,6 +170,10 @@ impl TimelinePane {
                 if !on {
                     studio.end_hover();
                 }
+            }
+            TimelineMsg::PlayheadSnapChanged(on) => {
+                studio.prefs.playhead_snap = Some(on);
+                studio.prefs.save(&studio.host.dirs);
             }
             TimelineMsg::PreviewAxisAudioChanged(on) => {
                 studio.prefs.preview_axis_audio = on;

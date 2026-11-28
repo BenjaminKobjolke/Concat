@@ -174,10 +174,42 @@ private fun DrawScope.drawTimeline(
     // Read so a strip or an outline landing draws the timeline again.
     context.media.version
 
-    drawRect(ConcatColors.page)
-    drawTimelineLanes(context, state, layout, drag, ::x)
-    drawRuler(state.measurer, context.position, scale, centre)
-    drawPlayhead(state.knob, centre)
+private enum class Outcome { Tap, Pan, LongPress }
+
+/** The lanes laid out in [height], following the main track unless scrolled. */
+private fun layoutLanes(view: ProjectView, height: Float, scrollY: Float?, density: androidx.compose.ui.unit.Density): LaneLayout =
+    with(density) {
+        val mainIndex = mainTrackIndex(view)
+        val gap = LANE_GAP.toPx()
+        val heights = view.tracks.indices.reversed().map { index ->
+            val track = view.tracks[index]
+            val used = view.clips.any { it.trackId == track.id }
+            val sound = view.clips.any { it.trackId == track.id && it.kind == ClipKind.Audio }
+            index to when {
+                index == mainIndex -> Dimens.mainTrack.toPx()
+                sound -> SOUND_LANE.toPx()
+                used -> Dimens.overlayLane.toPx()
+                else -> Dimens.emptyLane.toPx()
+            }
+        }
+        val total = heights.sumOf { it.second.toDouble() }.toFloat() + gap * max(0, heights.size - 1)
+        val available = height - RULER.toPx() - 16.dp.toPx()
+        var y = RULER.toPx() + 10.dp.toPx()
+        if (total <= available) {
+            // Room for all: the block sits a little above the middle.
+            y += (available - total) * 0.3f
+        } else {
+            val probe = LaneLayout(rowsFrom(view, heights, y, gap, mainIndex), gap)
+            y -= scrollY ?: autoScroll(probe, height, density)
+        }
+        LaneLayout(rowsFrom(view, heights, y, gap, mainIndex), gap)
+    }
+
+private fun rowsFrom(view: ProjectView, heights: List<Pair<Int, Float>>, startY: Float, gap: Float, mainIndex: Int): List<LaneRow> {
+    var y = startY
+    return heights.map { (index, h) ->
+        LaneRow(index, view.tracks[index].id, y, h, index == mainIndex).also { y += h + gap }
+    }
 }
 
 private fun DrawScope.drawTimelineLanes(

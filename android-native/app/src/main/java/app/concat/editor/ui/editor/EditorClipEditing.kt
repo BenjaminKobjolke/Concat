@@ -14,6 +14,7 @@ import app.concat.editor.api.AppliedEffect
 import app.concat.editor.api.ClipBounds
 import app.concat.editor.api.ClipKind
 import app.concat.editor.api.Commands
+import app.concat.editor.api.TransitionClipRequest
 import app.concat.editor.api.JobTracker
 import app.concat.editor.api.ProjectView
 import app.concat.editor.api.ShapeCard
@@ -87,16 +88,25 @@ fun EditorViewModel.applyPackage(kind: String, packageId: String, name: String) 
         if (kind == "transition") {
             val clip = selectedClip()
             if (clip?.kind == ClipKind.Transition) {
-                // A transition clip selected: it becomes this one, at its defaults.
-                val patch = JSONObject().put("name", name)
-                    .put("videoEffects", org.json.JSONArray().put(AppliedEffect.fresh(packageId)))
-                change("Transition") { apply(Commands.updateClip(clip.id, patch)) }
+                // Replace the transition clip itself so its defaults are reapplied.
+                change("Transition") {
+                    val view = apply(
+                        Commands.batch(
+                            listOf(
+                                Commands.removeClips(listOf(clip.id), ripple = false),
+                                Commands.addTransitionClip(TransitionClipRequest(packageId, name, clip.start, clip.duration, clip.trackId)),
+                            ),
+                        ),
+                    )
+                    view.createdId?.let { id -> _ui.update { it.copy(selected = id) } }
+                    view
+                }
                 return
             }
             val at = clip?.start ?: _ui.value.position
             val start = (at - 0.5).coerceAtLeast(0.0)
             change("Transition") {
-                val view = apply(Commands.addTransitionClip(packageId, name, start, duration = 1.0))
+                val view = apply(Commands.addTransitionClip(TransitionClipRequest(packageId, name, start, duration = 1.0)))
                 view.createdId?.let { id -> _ui.update { it.copy(selected = id) } }
                 view
             }
@@ -114,6 +124,8 @@ fun EditorViewModel.applyPackage(kind: String, packageId: String, name: String) 
      */
 fun EditorViewModel.setLink(clipId: String, field: String, index: Int, link: JSONObject) {
         val clip = _ui.value.view?.clip(clipId) ?: return
+        // A transition's package and knobs are the clip itself, not a chain an edit replaces.
+        if (clip.kind == ClipKind.Transition) return
         val chain = (if (field == "filters") clip.filters else clip.videoEffects).map { it.raw }.toMutableList()
         if (index !in chain.indices) return
         chain[index] = link

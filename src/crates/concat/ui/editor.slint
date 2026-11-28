@@ -358,6 +358,10 @@ export global Editor {
     in-out property <[ClipData]> clips;
     in-out property <TimelineTool> tool;
     in-out property <bool> snap;
+    /// The playhead snaps as it is scrubbed: to the timeline's start, clip
+    /// edges, shown beats and the selected clip's keys. A remembered
+    /// preference, which Rust owns; the toolbar's button flips it.
+    in-out property <bool> playhead-snap: true;
     /// The magnetic timeline: a delete or a trim closes the gap it would
     /// leave. A remembered preference, which Rust owns; the tray's button
     /// and the Settings switch both show it.
@@ -373,6 +377,16 @@ export global Editor {
     /// The VU meters at the timeline's right edge. A remembered
     /// preference, which Rust owns; the tray's meter button flips it.
     in-out property <bool> meters-shown: true;
+    /// A click on a clip or an empty lane sends the playhead there. Off,
+    /// the ruler alone moves it. A remembered preference, which Rust owns;
+    /// its switch is in Settings.
+    in-out property <bool> click-moves-playhead: true;
+    /// The full-screen preview: the monitor has the whole window and the
+    /// window the whole screen. The seats say the same thing - there is
+    /// one, the monitor's - and this is for what is not a seat: the title
+    /// strip goes, and the monitor draws without its header. Rust owns it;
+    /// `shortcut("preview-full")` flips it.
+    in-out property <bool> preview-full;
     /// The preview axis: the monitor shows the frame under the pointer as
     /// it crosses the lanes, the playhead staying put. A remembered
     /// preference, which Rust owns; `preview-axis-audio` is whether the
@@ -415,6 +429,7 @@ export global Editor {
     callback tab-added();
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
+    callback playhead-snap-changed(on: bool);
     callback magnetic-changed(on: bool);
     callback linkage-changed(on: bool);
     callback pan-changed(on: bool);
@@ -446,12 +461,12 @@ export global Editor {
     in-out property <bool> recording;
     /// Which of the tray's panels are up, so their buttons read as on.
     in-out property <bool> captions-open;
-    /// Captions as the Library's Text & Captions page shows them on a desk:
+    /// Captions as the Library's Captions page shows them on a desk:
     /// the same data and answers as the phone's sheet (see CaptionsForm).
     in-out property <CaptionsSheetData> captions-sheet;
     in-out property <[string]> caption-models;
     in-out property <[string]> caption-languages;
-    /// Bumped when the library should turn to Text & Captions > Captions:
+    /// Bumped when the library should turn to the Captions page:
     /// the tray's Captions button, or Generate captions on a clip's menu.
     in-out property <int> captions-jump-token;
     /// The library's Captions page came into view, or went out of it.

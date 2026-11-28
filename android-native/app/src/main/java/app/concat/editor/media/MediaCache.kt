@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import app.concat.editor.api.ConcatApi
+import app.concat.editor.api.FilmstripRequest
 import app.concat.editor.api.Peaks
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,7 +60,7 @@ class MediaCache(private val api: ConcatApi, private val scope: CoroutineScope) 
             scope.launch(Dispatchers.Main) {
                 try {
                     val image = gate.withPermit {
-                        val bytes = api.mediaFilmstrip(key.file, key.from, key.to, key.count, key.height)
+                        val bytes = api.mediaFilmstrip(FilmstripRequest(key.file, key.from, key.to, key.count, key.height))
                         withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
                     }
                     if (image != null) {

@@ -115,6 +115,10 @@ export enum Glyph {
     align-bottom,
     distribute,
     fit,
+    /// the preview over the whole screen: four arrows out to the corners;
+    /// `full-screen-exit` is the four coming back in
+    full-screen,
+    full-screen-exit,
     rows,
     film,
     music,
@@ -144,6 +148,9 @@ export enum Glyph {
     merge,
     trash,
     magnet,
+    /// the playhead's own snap: a playhead with a tick drawn in to it
+    /// from either side
+    snap-playhead,
     fold,
     link,
     /// the preview axis: a hairline with the pointer beside it
@@ -170,6 +177,8 @@ export enum Glyph {
     skip-back,
     skip-forward,
     text-mark,
+    /// a framed pair of caption lines
+    captions,
     // the start screen
     info,
     help,
@@ -777,6 +786,22 @@ export component Icon inherits Rectangle {
             + " 2 2h3 M16 21h3a2 2 0 0 0 2-2v-3";
     }
 
+    // Four arrows out to the corners — the picture takes the screen.
+    // lucide/expand
+    if root.glyph == Glyph.full-screen: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M15 15l6 6 M15 9l6-6 M21 16v5h-5 M21 8V3h-5 M3 16v5h5 M3 21l6-6"
+            + " M3 8V3h5 M9 9L3 3";
+    }
+
+    // The four coming back in — the picture gives the screen back.
+    // lucide/shrink
+    if root.glyph == Glyph.full-screen-exit: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M15 15l6 6 M15 15v4.8 M15 15h4.8 M9 19.8V15 M9 15H4.2 M9 15l-6 6"
+            + " M15 4.2V9 M15 9h4.8 M15 9l6-6 M9 4.2V9 M9 9H4.2 M9 9L3 3";
+    }
+
     // lucide/hand
     if root.glyph == Glyph.hand: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
@@ -838,6 +863,14 @@ export component Icon inherits Rectangle {
     }
 
     // lucide/magnet
+    // A playhead - its head and its hairline - with a short tick coming in
+    // to it from each side: the cuts it lands on.
+    if root.glyph == Glyph.snap-playhead: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M9 3h6v3.5l-3 3l-3-3z M12 9.5V21 M3 15h5 M21 15h-5"
+            + " M6 13l2 2l-2 2 M18 13l-2 2l2 2";
+    }
+
     if root.glyph == Glyph.magnet: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M12 15l4 4 M2.352 10.648a1.205 1.205 0 0 0 0 1.704l2.296"
@@ -906,6 +939,13 @@ export component Icon inherits Rectangle {
     if root.glyph == Glyph.text-mark: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M12 4v16 M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2 M9 20h6";
+    }
+
+    // lucide/captions
+    if root.glyph == Glyph.captions: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"
+            + " M7 15h4 M15 15h2 M7 11h2 M13 11h4";
     }
 
     // lucide/step-back

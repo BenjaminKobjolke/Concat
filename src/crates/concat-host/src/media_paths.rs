@@ -11,7 +11,7 @@ use serde_json::Value;
 /// Store paths inside the project relative to its folder, with `/` separators.
 /// Absolute paths outside the project remain unchanged.
 pub fn to_portable(root: &Path, document: &mut Value) {
-    walk_paths(root, document, |root, path| {
+    walk_paths(root, document, |root, path, _section| {
         if let Some(relative) = relative_to(root, path) {
             return relative.replace('\\', "/");
         }
@@ -25,7 +25,7 @@ pub fn to_portable(root: &Path, document: &mut Value) {
 /// Resolve project-relative paths for local use and recover copied media when
 /// an older project still names its former absolute location.
 pub fn to_local(root: &Path, document: &mut Value) {
-    walk_paths(root, document, |root, path| {
+    walk_paths(root, document, |root, path, _section| {
         if is_absolute(path) {
             if Path::new(path).exists() {
                 return local_path_string(Path::new(path));
@@ -44,6 +44,33 @@ pub fn to_local(root: &Path, document: &mut Value) {
     });
 }
 
+/// Serialize a document with project-local media and font paths made portable.
+pub fn portable_document(
+    root: &Path,
+    document: &concat_doc::Document<concat_doc::model::Model>,
+) -> Result<Vec<u8>, String> {
+    let mut value: Value = serde_json::from_str(&concat_doc::file::write(document))
+        .map_err(|error| format!("could not read the document for path conversion: {error}"))?;
+    to_portable(root, &mut value);
+    serde_json::to_vec(&value)
+        .map_err(|error| format!("could not encode the document with portable paths: {error}"))
+}
+
+/// Resolve portable paths in a newly opened document for this machine.
+pub fn local_document(
+    root: &Path,
+    document: concat_doc::Document<concat_doc::model::Model>,
+) -> Result<concat_doc::Document<concat_doc::model::Model>, String> {
+    let mut value: Value = serde_json::from_str(&concat_doc::file::write(&document))
+        .map_err(|error| format!("could not read the document for path conversion: {error}"))?;
+    to_local(root, &mut value);
+    let bytes = serde_json::to_vec(&value)
+        .map_err(|error| format!("could not encode the document with local paths: {error}"))?;
+    concat_doc::file::read(&bytes)
+        .map(|opened| opened.document)
+        .map_err(|error| format!("could not open the document with local paths: {error}"))
+}
+
 /// Return an ordinary local spelling for paths stored in the project model.
 /// Windows accepts verbatim paths and mixed separators, but they make saved
 /// model values differ from paths produced by imports and edits.
@@ -60,16 +87,25 @@ pub fn local_path_string(path: &Path) -> String {
     value
 }
 
-fn walk_paths(root: &Path, document: &mut Value, mut convert: impl FnMut(&Path, &str) -> String) {
+fn walk_paths(
+    root: &Path,
+    document: &mut Value,
+    mut convert: impl FnMut(&Path, &str, &str) -> String,
+) {
     for section in ["media", "fonts"] {
-        let Some(items) = document.get_mut(section).and_then(Value::as_array_mut) else {
+        let Some(items) = document.get_mut(section) else {
             continue;
+        };
+        let items: Box<dyn Iterator<Item = &mut Value> + '_> = match items {
+            Value::Array(items) => Box::new(items.iter_mut()),
+            Value::Object(items) => Box::new(items.values_mut()),
+            _ => continue,
         };
         for item in items {
             let Some(path) = item.get("path").and_then(Value::as_str) else {
                 continue;
             };
-            item["path"] = Value::String(convert(root, path));
+            item["path"] = Value::String(convert(root, path, section));
         }
     }
 }
@@ -217,6 +253,56 @@ mod tests {
 
         assert_eq!(path(&document, "media", 0), "media/a.mp4");
         assert_eq!(path(&document, "fonts", 0), "media/a.ttf");
+    }
+
+    #[test]
+    fn new_format_document_round_trips_media_and_font_paths() {
+        use concat_doc::commands::{Command, run};
+        use concat_doc::model::{Media, MediaKind, Model};
+        use concat_doc::{Document, Origin};
+
+        let root = tempfile::tempdir().expect("project folder");
+        let media = root.path().join("media").join("a.mp4");
+        let font = root.path().join("media").join("a.ttf");
+        std::fs::create_dir_all(media.parent().expect("media folder")).expect("creates media");
+        std::fs::write(&media, b"video").expect("writes media");
+        std::fs::write(&font, b"font").expect("writes font");
+        let mut document = Document::<Model>::new();
+        for command in [
+            Command::AddMedia {
+                media: Media {
+                    path: media.to_string_lossy().into_owned(),
+                    name: "a.mp4".into(),
+                    kind: MediaKind::Video,
+                    ..Media::default()
+                },
+            },
+            Command::AddFont {
+                family: "Test".into(),
+                path: font.to_string_lossy().into_owned(),
+            },
+        ] {
+            document = run(&document, &command, Origin(0))
+                .expect("adds a document asset")
+                .commit
+                .expect("asset changes the document")
+                .into_document();
+        }
+        let media_id = document.tables().media.iter().next().expect("media").0;
+        let media_key = media_id.to_string();
+        let mut value: Value =
+            serde_json::from_str(&concat_doc::file::write(&document)).expect("new-format file");
+
+        to_portable(root.path(), &mut value);
+        assert_eq!(value["media"][media_key.as_str()]["path"], "media/a.mp4");
+        assert_eq!(path(&value, "fonts", 0), "media/a.ttf");
+
+        to_local(root.path(), &mut value);
+        assert_eq!(
+            Path::new(value["media"][media_key.as_str()]["path"].as_str().unwrap()),
+            media
+        );
+        assert_eq!(Path::new(path(&value, "fonts", 0)), font);
     }
 
     #[test]

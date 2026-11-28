@@ -72,31 +72,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-data class CatalogueUi(val packages: List<PackageInfo> = emptyList(), val loaded: Boolean = false, val error: String? = null)
-
-/** Every package the build knows (`catalogue.list`), read once per editor. */
-class CatalogueViewModel(application: Application) : AndroidViewModel(application) {
-    private val api = application.concat.api
-    private val _ui = MutableStateFlow(CatalogueUi())
-    val ui: StateFlow<CatalogueUi> = _ui
-
-    fun load() {
-        if (_ui.value.loaded && _ui.value.error == null) return
-        viewModelScope.launch {
-            try {
-                val packages = api.catalogue()
-                _ui.update { CatalogueUi(packages, loaded = true) }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                _ui.update { it.copy(loaded = true, error = error.message ?: "The catalogue would not load.") }
-            }
-        }
-    }
-
-    fun find(id: String): PackageInfo? = _ui.value.packages.firstOrNull { it.id == id }
-}
-
 /** Which packages a sheet shows, and what it is called. */
 enum class Shelf(val title: String) { Effects("Effects"), Filters("Filters"), Transitions("Transitions") }
 
@@ -249,19 +224,24 @@ private fun LinkCard(clip: Clip, field: String, index: Int, link: AppliedEffect,
         out.put("params", params).put("enabled", enabled)
         editor.setLink(clip.id, field, index, out)
     }
+    // A transition's package and knobs are the clip itself: it is changed by
+    // picking another, not adjusted here.
+    val adjustable = clip.kind != ClipKind.Transition
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Palette.raised).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(pkg?.name ?: link.id, color = Palette.text, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            Switch(checked = enabled, onCheckedChange = {
-                enabled = it
-                send()
-            })
+            if (adjustable) {
+                Switch(checked = enabled, onCheckedChange = {
+                    enabled = it
+                    send()
+                })
+            }
             if (removable) TextButton(onClick = { editor.removeLink(clip.id, field, index) }) { Text("Remove") }
         }
-        val params = pkg?.params?.filter { it.sliderable }.orEmpty()
+        val params = pkg?.params?.filter { it.sliderable && adjustable }.orEmpty()
         if (params.isEmpty()) SectionLabel(pkg?.description?.ifBlank { null } ?: "Nothing to adjust.")
         for (param in params) {
             ParamControl(param, values[param.key] ?: param.default) {

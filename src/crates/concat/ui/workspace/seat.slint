@@ -197,6 +197,8 @@ export component Seat inherits Rectangle {
             pane-seat: root.index;
             pane-removable: Editor.seats.length > 1;
             pane-removed => { root.removed(); }
+            full: Editor.preview-full;
+            full-toggled => { Editor.shortcut("preview-full"); }
 
             previewing: Editor.library-audition != "";
             preview-ended => { Editor.library-audition-filter(Editor.library-audition); }
@@ -443,11 +445,13 @@ export component Seat inherits Rectangle {
             key-marks: Editor.key-marks;
             tool: Editor.tool;
             snap: Editor.snap;
+            playhead-snap: Editor.playhead-snap;
             magnetic: Editor.magnetic;
             linkage: Editor.linkage;
             pan-mode: Editor.pan-mode;
             trim-follow: Editor.trim-follow;
             meters-shown: Editor.meters-shown;
+            click-moves-playhead: Editor.click-moves-playhead;
             preview-axis: Editor.preview-axis;
             preview-axis-audio: Editor.preview-axis-audio;
             selected-count: Editor.selected-count;
@@ -476,6 +480,7 @@ export component Seat inherits Rectangle {
             tab-moved(from, to) => { Editor.tab-moved(from, to); }
             tool-changed(tool) => { Editor.tool-changed(tool); }
             snap-changed(snap) => { Editor.snap-changed(snap); }
+            playhead-snap-changed(on) => { Editor.playhead-snap-changed(on); }
             magnetic-changed(on) => { Editor.magnetic-changed(on); }
             linkage-changed(on) => { Editor.linkage-changed(on); }
             pan-changed(on) => { Editor.pan-changed(on); }

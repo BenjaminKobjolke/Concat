@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use concat_project::model::{AppliedFilter, ParamKey};
+use crate::applied::{AppliedFilter, ParamKey};
 use serde::Deserialize;
 
 use crate::Error;
@@ -1308,7 +1308,7 @@ impl Catalogue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use concat_project::model::KeyEase;
+    use concat_core::animate::Ease as KeyEase;
 
     #[test]
     fn retired_wipe_names_keep_their_directions() {

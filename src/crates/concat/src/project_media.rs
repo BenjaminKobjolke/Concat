@@ -7,7 +7,8 @@ use std::fs::OpenOptions;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use concat_project::{Command, model::Project};
+use concat_doc::commands::Command;
+use concat_doc::model::Model;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Collection {
@@ -68,13 +69,13 @@ pub(crate) fn copy_into_project_media(source: &Path, project_dir: &Path) -> io::
     unreachable!("the numbered media name space is larger than the filesystem")
 }
 
-pub(crate) fn collect(project: &Project, project_dir: &Path) -> Collection {
+pub(crate) fn collect(project: &Model, project_dir: &Path) -> Collection {
     let mut result = Collection::default();
-    for item in &project.media {
+    for (media_id, item) in project.media.iter() {
         match collect_path(&item.path, project_dir) {
             Ok(Some(path)) => result.commands.push(Command::UpdateMediaPath {
-                media_id: item.id.clone(),
-                new_path: path.to_string_lossy().into_owned(),
+                media: media_id,
+                path: path.to_string_lossy().into_owned(),
             }),
             Ok(None) => {}
             Err(CollectError::Missing) => result.missing_media.push(item.name.clone()),
@@ -165,7 +166,9 @@ mod tests {
 
     #[test]
     fn collecting_copies_fonts_and_reports_missing_media_and_fonts() {
-        use concat_project::model::{CustomFont, MediaItem};
+        use concat_doc::commands::run;
+        use concat_doc::model::{Media, MediaKind, Model};
+        use concat_doc::{Document, Origin};
 
         let root = TestDirectory::new("project");
         let external = TestDirectory::new("external");
@@ -173,43 +176,64 @@ mod tests {
         let font = external.path().join("font.ttf");
         std::fs::write(&media, b"video").expect("media file");
         std::fs::write(&font, b"font").expect("font file");
-        let project = Project {
-            media: vec![
-                MediaItem {
-                    id: "m1".into(),
-                    path: media.to_string_lossy().into_owned(),
-                    name: "a.mp4".into(),
-                    ..MediaItem::default()
+        let mut document = Document::<Model>::new();
+        for (path, name) in [
+            (media.to_string_lossy().into_owned(), "a.mp4".to_owned()),
+            (
+                external
+                    .path()
+                    .join("missing.mp4")
+                    .to_string_lossy()
+                    .into_owned(),
+                "missing.mp4".to_owned(),
+            ),
+        ] {
+            let outcome = run(
+                &document,
+                &Command::AddMedia {
+                    media: Media {
+                        path,
+                        name,
+                        kind: MediaKind::Video,
+                        ..Media::default()
+                    },
                 },
-                MediaItem {
-                    id: "m2".into(),
-                    path: external
-                        .path()
-                        .join("missing.mp4")
-                        .to_string_lossy()
-                        .into_owned(),
-                    name: "missing.mp4".into(),
-                    ..MediaItem::default()
+                Origin(0),
+            )
+            .expect("adds media");
+            document = outcome
+                .commit
+                .expect("media changes document")
+                .into_document();
+        }
+        for path in [
+            font.to_string_lossy().into_owned(),
+            external
+                .path()
+                .join("missing.ttf")
+                .to_string_lossy()
+                .into_owned(),
+        ] {
+            let outcome = run(
+                &document,
+                &Command::AddFont {
+                    family: if path == font.to_string_lossy() {
+                        "Test Font".into()
+                    } else {
+                        "Missing Font".into()
+                    },
+                    path,
                 },
-            ],
-            fonts: vec![
-                CustomFont {
-                    family: "Test Font".into(),
-                    path: font.to_string_lossy().into_owned(),
-                },
-                CustomFont {
-                    family: "Missing Font".into(),
-                    path: external
-                        .path()
-                        .join("missing.ttf")
-                        .to_string_lossy()
-                        .into_owned(),
-                },
-            ],
-            ..Project::default()
-        };
+                Origin(0),
+            )
+            .expect("adds font");
+            document = outcome
+                .commit
+                .expect("font changes document")
+                .into_document();
+        }
 
-        let result = collect(&project, root.path());
+        let result = collect(document.tables(), root.path());
 
         assert_eq!(result.commands.len(), 2);
         assert!(result.commands.iter().any(|command| matches!(

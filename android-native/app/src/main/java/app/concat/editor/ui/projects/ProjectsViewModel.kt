@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.concat.editor.api.ProjectInfo
+import app.concat.editor.api.ProjectCreation
 import app.concat.editor.concat
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -100,7 +101,7 @@ class ProjectsViewModel(application: Application) : AndroidViewModel(application
     fun create(name: String, aspect: Aspect, onOpen: (String) -> Unit) {
         viewModelScope.launch {
             try {
-                val path = app.api.createProject(app.projectsDir.absolutePath, name.trim(), aspect.width, aspect.height, 30)
+                val path = app.api.createProject(ProjectCreation(app.projectsDir.absolutePath, name.trim(), aspect.width, aspect.height, 30))
                 onOpen(path)
             } catch (error: Exception) {
                 _ui.update { it.copy(message = error.message) }
