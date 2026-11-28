@@ -101,6 +101,48 @@ internal fun rememberEditorUiState(startTool: String?): EditorUiState {
     )
 }
 
+@Composable
+internal fun rememberEditorLayoutContext(
+    application: Application,
+    launch: EditorLaunchContext,
+): EditorLayoutContext {
+    val path = launch.path
+    val session = launch.session
+    val onClosed = launch.onClosed
+    val models = rememberEditorModels(application, path, session)
+    val model = models.editor
+    val ui by model.ui.collectAsStateWithLifecycle()
+    val screen = rememberEditorUiState(launch.startTool)
+    val view = ui.view
+    val selected = view?.clip(ui.selected)
+    ObserveEditorLifecycle(model)
+    EditorBackHandler(EditorBackContext(
+        inlineEdit = screen.inlineEdit.value,
+        fullscreen = screen.fullscreen.value,
+        panel = screen.panel.value,
+        selected = ui.selected,
+        menu = screen.menu.value,
+        clearInlineEdit = { screen.inlineEdit.value = null },
+        leaveFullscreen = { screen.fullscreen.value = false },
+        closePanel = { screen.panel.value = null },
+        deselect = { model.select(null) },
+        resetMenu = { screen.menu.value = Menu.Root },
+        closeEditor = { model.close(onClosed) },
+    ))
+    ObserveEditorPanel(selected, screen.panel.value) { screen.panel.value = it }
+    return EditorLayoutContext(
+        application = application, path = path, onClosed = onClosed, model = model, ui = ui, view = view,
+        selected = selected, coverImage = remember(ui.cover) { ui.cover?.asImageBitmap() },
+        mainTrackId = view?.let { it.tracks.getOrNull(mainTrackIndex(it))?.id },
+        menu = screen.menu, panel = screen.panel, shownPanel = screen.shownPanel,
+        fullscreen = screen.fullscreen, inlineEdit = screen.inlineEdit, exporting = screen.exporting,
+        renaming = screen.renaming, catalogueShelf = screen.catalogueShelf, catalogueAdjust = screen.catalogueAdjust,
+        catalogue = models.catalogue, captions = models.captions, speech = models.speech,
+        voiceover = models.voiceover, haptics = LocalHapticFeedback.current,
+        pickers = rememberEditorPickers(model),
+    )
+}
+
 /**
  * The editor: a top bar, the preview (at most about 42% of
  * the height: the timeline is the product), the transport, the timeline,

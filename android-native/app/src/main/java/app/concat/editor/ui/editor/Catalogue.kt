@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -65,7 +66,7 @@ fun Shelf.kinds(clip: Clip?): List<String> = when (this) {
 
 /** The selected clip's links of [kinds], newest first, each with its knobs. */
 @Composable
-private fun AdjustChain(clip: Clip?, kinds: List<String>, catalogue: CatalogueViewModel, editor: EditorViewModel) {
+internal fun AdjustChain(clip: Clip?, kinds: List<String>, catalogue: CatalogueViewModel, editor: EditorViewModel) {
     if (clip == null) {
         SectionLabel("Select a clip to adjust what is on it.")
         return
