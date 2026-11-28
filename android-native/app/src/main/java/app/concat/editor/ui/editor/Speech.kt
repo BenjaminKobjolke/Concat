@@ -36,6 +36,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.concat.editor.api.JobTracker
+import app.concat.editor.api.SpeechRequest
 import app.concat.editor.api.ModelInfo
 import app.concat.editor.api.VoiceItem
 import app.concat.editor.api.errorMessage
@@ -117,7 +118,7 @@ class SpeechViewModel(application: Application, private val path: String) : Andr
         tracker.expect()
         viewModelScope.launch {
             try {
-                tracker.start(api.speechSpeak(path, now.text.trim(), model, voice, now.speed.toDouble()))
+                tracker.start(api.speechSpeak(SpeechRequest(path, now.text.trim(), model, voice, now.speed.toDouble())))
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

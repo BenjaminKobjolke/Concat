@@ -8,6 +8,7 @@ import app.concat.editor.api.Commands
 import app.concat.editor.api.ProjectCreation
 import app.concat.editor.export.EXPORT_PRESETS
 import app.concat.editor.export.ExportState
+import app.concat.editor.export.ExportStartRequest
 import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -47,7 +48,7 @@ object Smoke {
                 val media = imported.media.firstOrNull { it.path == clip.absolutePath } ?: imported.media.first()
                 app.api.apply(path, Commands.addClipsInSequence(listOf(media.id), 0.0))
                 app.api.save(path)
-                app.exports.start(path, "smoke", 1080, 1920, EXPORT_PRESETS.first()).getOrThrow()
+                app.exports.start(ExportStartRequest(path, "smoke", 1080, 1920, EXPORT_PRESETS.first())).getOrThrow()
                 when (val end = app.exports.state.first { it is ExportState.Done || it is ExportState.Failed }) {
                     is ExportState.Done -> Log.i(TAG, "smoke: export finished: ${end.file} (${end.file.length()} bytes)")
                     is ExportState.Failed -> Log.e(TAG, "smoke: the export run failed: ${end.message}")

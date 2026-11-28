@@ -50,50 +50,74 @@ internal class OverlayBox(val centre: Offset, val width: Float, val height: Floa
     val corners get() = listOf(corner(-1f, -1f), corner(1f, -1f), corner(1f, 1f), corner(-1f, 1f))
 }
 
+internal data class OverlayBoxRequest(
+    val view: ProjectView,
+    val clip: Clip,
+    val placement: Placement,
+    val frame: Size,
+    val bounds: Map<String, ClipBounds>,
+)
+
 /**
  * Where [clip] is drawn on a [frame]-sized picture at [placement]: a title's
  * or shape's block as the engine painted it ([bounds], from `clips.bounds`),
  * a reading of its style until that comes, and a picture fitted to the
  * frame (by its own aspect when the probe found one).
  */
-internal fun boxOf(view: ProjectView, clip: Clip, placement: Placement, frame: Size, bounds: Map<String, ClipBounds>): OverlayBox {
+internal fun boxOf(request: OverlayBoxRequest): OverlayBox {
+    val (view, clip, placement, frame, bounds) = request
     val centre = Offset(
         frame.width / 2f + (placement.offsetX * frame.width).toFloat(),
         frame.height / 2f + (placement.offsetY * frame.height).toFloat(),
     )
-    val scale = placement.scale.toFloat()
-    val turn = placement.rotation.toFloat()
     val painted = bounds[clip.id]?.takeIf { clip.kind == ClipKind.Text || clip.kind == ClipKind.Shape }
-    if (painted != null) {
-        // The block's offset is canvas pixels: it scales and turns with the clip.
-        val px = (painted.offsetX * frame.width).toFloat() * scale
-        val py = (painted.offsetY * frame.height).toFloat() * scale
-        val r = turn * PI.toFloat() / 180f
-        val shift = Offset(px * cos(r) - py * sin(r), px * sin(r) + py * cos(r))
-        return OverlayBox(
-            centre + shift,
-            (painted.width * frame.width).toFloat() * scale,
-            (painted.height * frame.height).toFloat() * scale,
-            turn,
-            anchor = centre,
-        )
+    return when {
+        painted != null -> paintedBox(request, centre, painted)
+        clip.kind == ClipKind.Text -> textBox(request, centre)
+        clip.kind == ClipKind.Shape -> shapeBox(request, centre)
+        else -> mediaBox(request, centre)
     }
-    if (clip.kind == ClipKind.Text) {
-        val style = clip.text
-        val font = ((style?.optDouble("fontSize", 0.09) ?: 0.09).toFloat() * frame.height * scale).coerceAtLeast(6f)
-        val lines = (style?.optString("content") ?: clip.name).lines().ifEmpty { listOf("") }
-        val longest = lines.maxOf { it.length }.coerceAtLeast(1)
-        val pad = font * 0.3f
-        return OverlayBox(centre, longest * font * 0.5f + pad * 2, lines.size * font * 1.2f + pad * 2, turn)
-    }
-    if (clip.kind == ClipKind.Shape) {
+}
+
+private fun paintedBox(request: OverlayBoxRequest, centre: Offset, painted: ClipBounds): OverlayBox {
+    val scale = request.placement.scale.toFloat()
+    val turn = request.placement.rotation.toFloat()
+    // The block's offset is canvas pixels: it scales and turns with the clip.
+    val px = (painted.offsetX * request.frame.width).toFloat() * scale
+    val py = (painted.offsetY * request.frame.height).toFloat() * scale
+    val r = turn * PI.toFloat() / 180f
+    val shift = Offset(px * cos(r) - py * sin(r), px * sin(r) + py * cos(r))
+    return OverlayBox(
+        centre + shift,
+        (painted.width * request.frame.width).toFloat() * scale,
+        (painted.height * request.frame.height).toFloat() * scale,
+        turn,
+        anchor = centre,
+    )
+}
+
+private fun textBox(request: OverlayBoxRequest, centre: Offset): OverlayBox {
+    val style = request.clip.text
+    val scale = request.placement.scale.toFloat()
+    val font = ((style?.optDouble("fontSize", 0.09) ?: 0.09).toFloat() * request.frame.height * scale).coerceAtLeast(6f)
+    val lines = (style?.optString("content") ?: request.clip.name).lines().ifEmpty { listOf("") }
+    val longest = lines.maxOf { it.length }.coerceAtLeast(1)
+    val pad = font * 0.3f
+    return OverlayBox(centre, longest * font * 0.5f + pad * 2, lines.size * font * 1.2f + pad * 2, request.placement.rotation.toFloat())
+}
+
+private fun shapeBox(request: OverlayBoxRequest, centre: Offset): OverlayBox {
         // Until it is painted: a figure's default size, a third of the frame's height.
-        val side = 0.35f * frame.height * scale
-        return OverlayBox(centre, side, side, turn)
-    }
-    val media = view.mediaOf(clip)
+    val side = 0.35f * request.frame.height * request.placement.scale.toFloat()
+    return OverlayBox(centre, side, side, request.placement.rotation.toFloat())
+}
+
+private fun mediaBox(request: OverlayBoxRequest, centre: Offset): OverlayBox {
+    val media = request.view.mediaOf(request.clip)
+    val frame = request.frame
     val aspect = if (media != null && media.width > 0 && media.height > 0) media.width.toFloat() / media.height else frame.width / frame.height
     val fitted = if (aspect > frame.width / frame.height) Size(frame.width, frame.width / aspect) else Size(frame.height * aspect, frame.height)
-    return OverlayBox(centre, fitted.width * scale, fitted.height * scale, turn)
+    val scale = request.placement.scale.toFloat()
+    return OverlayBox(centre, fitted.width * scale, fitted.height * scale, request.placement.rotation.toFloat())
 }
 

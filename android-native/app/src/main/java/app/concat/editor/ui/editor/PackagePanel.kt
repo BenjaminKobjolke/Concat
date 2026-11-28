@@ -58,6 +58,30 @@ import app.concat.editor.ui.theme.Spacing
 
 data class PackagePanelActions(val onMore: () -> Unit, val onClose: () -> Unit)
 
+private data class PackagePanelTilesState(
+    val shelf: Shelf,
+    val offered: List<PackageInfo>,
+    val links: List<Triple<String, Int, AppliedEffect>>,
+    val clip: Clip?,
+)
+
+private data class PackagePanelStrengthState(
+    val clip: Clip?,
+    val links: List<Triple<String, Int, AppliedEffect>>,
+    val catalogue: CatalogueViewModel,
+)
+
+private data class LinkStrengthState(
+    val clip: Clip,
+    val field: String,
+    val index: Int,
+    val link: AppliedEffect,
+    val pkg: PackageInfo,
+    val knob: ParamInfo,
+)
+
+private data class PackageTileSmallState(val name: String, val tint: Brush?, val selected: Boolean, val enabled: Boolean)
+
 /** Effects, filters or transitions as a row of tiles over the selected clip. */
 @Composable
 fun PackagePanel(
@@ -75,7 +99,6 @@ fun PackagePanel(
     LaunchedEffect(Unit) { catalogue.load() }
     val offered = state.packages.filter { it.kind in kinds }
     val links = shelfLinks(clip, kinds, catalogue)
-    val applied = links.map { it.third.id }.toSet()
     val message = packagePanelMessage(state.loaded, state.error, clip, shelf)
 
     ToolPanel(
@@ -88,31 +111,45 @@ fun PackagePanel(
         ),
     ) {
         message?.let { PanelLabel(it, Modifier.padding(horizontal = Spacing.lg)) }
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.lg),
-        ) {
-            if (shelf != Shelf.Transitions) {
-                item(key = "none") {
-                    PackageTileSmall("None", null, links.isEmpty(), clip != null && links.isNotEmpty()) {
-                        clip?.let { editor.removeLinks(it.id, links.map { link -> link.first to link.second }) }
-                    }
-                }
-            }
-            items(offered, key = { it.id }) { pkg ->
-                PackageTileSmall(pkg.name, tileColour(pkg), pkg.id in applied, clip != null || shelf == Shelf.Transitions) {
-                    editor.applyPackage(pkg.kind, pkg.id, pkg.name)
+        PackagePanelTiles(PackagePanelTilesState(shelf, offered, links, clip), editor)
+        PackagePanelStrength(PackagePanelStrengthState(clip, links, catalogue), editor)
+    }
+}
+
+@Composable
+private fun PackagePanelTiles(state: PackagePanelTilesState, editor: EditorViewModel) {
+    val applied = state.links.map { it.third.id }.toSet()
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.lg),
+    ) {
+        if (state.shelf != Shelf.Transitions) {
+            item(key = "none") {
+                PackageTileSmall(PackageTileSmallState("None", null, state.links.isEmpty(), state.clip != null && state.links.isNotEmpty())) {
+                    state.clip?.let { clip -> editor.removeLinks(clip.id, state.links.map { it.first to it.second }) }
                 }
             }
         }
-        val newest = links.maxByOrNull { if (it.first == "videoEffects") 1000 + it.second else it.second }
-        val pkg = newest?.let { catalogue.find(it.third.id) }
-        val knob = pkg?.params?.firstOrNull { it.key == pkg.intensity }
-            ?: pkg?.params?.firstOrNull { it.type == "float" || it.type == "int" }
-        if (clip != null && clip.kind != ClipKind.Transition && newest != null && pkg != null && knob != null) {
-            LinkStrength(clip, newest.first, newest.second, newest.third, pkg, knob, editor)
+        items(state.offered, key = { it.id }) { pkg ->
+            PackageTileSmall(PackageTileSmallState(pkg.name, tileColour(pkg), pkg.id in applied, state.clip != null || state.shelf == Shelf.Transitions)) {
+                editor.applyPackage(pkg.kind, pkg.id, pkg.name)
+            }
         }
     }
+}
+
+@Composable
+private fun PackagePanelStrength(state: PackagePanelStrengthState, editor: EditorViewModel) {
+    val newest = state.links.maxByOrNull { if (it.first == "videoEffects") 1000 + it.second else it.second }
+    val pkg = newest?.let { state.catalogue.find(it.third.id) }
+    val knob = pkg?.params?.firstOrNull { it.key == pkg.intensity }
+        ?: pkg?.params?.firstOrNull { it.type == "float" || it.type == "int" }
+    val target = if (state.clip != null && state.clip.kind != ClipKind.Transition && newest != null && pkg != null && knob != null) {
+        LinkStrengthState(state.clip, newest.first, newest.second, newest.third, pkg, knob)
+    } else {
+        null
+    }
+    target?.let { LinkStrength(it, editor) }
 }
 
 private fun packagePanelMessage(loaded: Boolean, error: String?, clip: Clip?, shelf: Shelf): String? = when {
@@ -134,10 +171,12 @@ private fun shelfLinks(clip: Clip?, kinds: List<String>, catalogue: CatalogueVie
 }.orEmpty()
 
 private fun belongsToShelf(clip: Clip, kinds: List<String>, kind: String?) =
-    clip.kind == ClipKind.Transition || kind in kinds || (kind == null && "effect" in kinds)
+    if (clip.kind == ClipKind.Transition) "transition" in kinds
+    else kind in kinds || (kind == null && "effect" in kinds)
 
 @Composable
-private fun LinkStrength(clip: Clip, field: String, index: Int, link: AppliedEffect, pkg: PackageInfo, knob: ParamInfo, editor: EditorViewModel) {
+private fun LinkStrength(state: LinkStrengthState, editor: EditorViewModel) {
+    val (clip, field, index, link, pkg, knob) = state
     var value by remember(clip.id, field, index, link.id) { mutableFloatStateOf((link.params[knob.key] ?: knob.default).toFloat()) }
     val low = knob.min.toFloat()
     val high = knob.max.toFloat().coerceAtLeast(low + 1e-3f)
@@ -163,7 +202,8 @@ private fun tileColour(pkg: PackageInfo): Brush {
 }
 
 @Composable
-private fun PackageTileSmall(name: String, tint: Brush?, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+private fun PackageTileSmall(state: PackageTileSmallState, onClick: () -> Unit) {
+    val (name, tint, selected, enabled) = state
     Column(Modifier.width(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         val shape = RoundedCornerShape(Radii.md)
         Box(

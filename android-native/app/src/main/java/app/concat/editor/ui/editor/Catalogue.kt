@@ -5,57 +5,32 @@ package app.concat.editor.ui.editor
 
 import android.app.Application
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import app.concat.editor.ui.icons.ConcatIcons
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.concat.editor.api.AppliedEffect
 import app.concat.editor.api.Clip
@@ -75,6 +50,8 @@ import org.json.JSONObject
 /** Which packages a sheet shows, and what it is called. */
 enum class Shelf(val title: String) { Effects("Effects"), Filters("Filters"), Transitions("Transitions") }
 
+data class CatalogueSheetRequest(val shelf: Shelf, val adjustFirst: Boolean)
+
 /** The package kinds a shelf offers for [clip]. */
 fun Shelf.kinds(clip: Clip?): List<String> = when (this) {
     Shelf.Effects -> when (clip?.kind) {
@@ -84,99 +61,6 @@ fun Shelf.kinds(clip: Clip?): List<String> = when (this) {
     }
     Shelf.Filters -> listOf("filter")
     Shelf.Transitions -> listOf("transition")
-}
-
-/**
- * A shelf of the catalogue: Browse, a searchable grid grouped by
- * category, where a tap applies the package to the selected clip; and
- * Adjust, the selected clip's chain links of this shelf's kinds, each
- * with sliders from its parameters that change the picture as they move.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CatalogueSheet(shelf: Shelf, catalogue: CatalogueViewModel, editor: EditorViewModel, adjustFirst: Boolean, onDismiss: () -> Unit) {
-    val state by catalogue.ui.collectAsStateWithLifecycle()
-    val editorUi by editor.ui.collectAsStateWithLifecycle()
-    val clip = editorUi.view?.clip(editorUi.selected)
-    val kinds = shelf.kinds(clip)
-    var tab by remember { mutableStateOf(if (adjustFirst) 1 else 0) }
-    var query by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { catalogue.load() }
-
-    val offered = state.packages.filter { it.kind in kinds }
-    val shown = offered.filter { pkg ->
-        (category == null || pkg.category == category) &&
-            (query.isBlank() || listOf(pkg.name, pkg.category, pkg.description).any { it.contains(query.trim(), ignoreCase = true) })
-    }
-    val categories = offered.map { it.category }.distinct().sorted()
-
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SheetTitle(shelf.title)
-            TabRow(selectedTabIndex = tab, containerColor = Color.Transparent) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Browse") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Adjust") }, enabled = clip != null)
-            }
-            if (tab == 0) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    leadingIcon = { Icon(ConcatIcons.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                    placeholder = { Text("Search ${shelf.title.lowercase()}") },
-                )
-                ChoiceChips(listOf<String?>(null) + categories, category, { it ?: "All" }) { category = it }
-                when {
-                    !state.loaded -> SectionLabel("Loading...")
-                    state.error != null -> SectionLabel(state.error ?: "")
-                    shown.isEmpty() -> SectionLabel("Nothing matches.")
-                }
-                if (shelf != Shelf.Transitions && clip == null) SectionLabel("Select a clip to apply one.")
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(92.dp),
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    for ((group, packages) in shown.groupBy { it.category }.toSortedMap()) {
-                        item(span = { GridItemSpan(maxLineSpan) }, key = "header-$group") {
-                            Text(group, color = Palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
-                        }
-                        items(packages, key = { it.id }) { pkg ->
-                            PackageTile(pkg, enabled = clip != null || shelf == Shelf.Transitions) {
-                                editor.applyPackage(pkg.kind, pkg.id, pkg.name)
-                                if (pkg.params.any { it.sliderable }) tab = 1
-                            }
-                        }
-                    }
-                }
-            } else {
-                AdjustChain(clip, kinds, catalogue, editor)
-            }
-            Spacer(Modifier.navigationBarsPadding().padding(bottom = 8.dp))
-        }
-    }
-}
-
-@Composable
-private fun PackageTile(pkg: PackageInfo, enabled: Boolean, onClick: () -> Unit) {
-    val hue = (pkg.id.hashCode() and 0xff) * 360f / 256f
-    Column(
-        Modifier.clip(RoundedCornerShape(10.dp)).clickable(enabled = enabled, onClick = onClick).padding(4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp))
-                .background(Color.hsv(hue, 0.45f, if (enabled) 0.55f else 0.3f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(pkg.name.take(2), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(pkg.name, color = Palette.text, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-    }
 }
 
 /** The selected clip's links of [kinds], newest first, each with its knobs. */
@@ -205,13 +89,22 @@ private fun AdjustChain(clip: Clip?, kinds: List<String>, catalogue: CatalogueVi
     }
     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items(links, key = { "${clip.id}/${it.first}/${it.second}/${it.third.id}" }) { (field, index, link) ->
-            LinkCard(clip, field, index, link, catalogue.find(link.id), editor, removable = clip.kind != ClipKind.Transition)
+            LinkCard(
+                CatalogueLinkCard(clip, field, index, link, catalogue.find(link.id), removable = clip.kind != ClipKind.Transition),
+                editor,
+            )
         }
     }
 }
 
 @Composable
-private fun LinkCard(clip: Clip, field: String, index: Int, link: AppliedEffect, pkg: PackageInfo?, editor: EditorViewModel, removable: Boolean) {
+private fun LinkCard(content: CatalogueLinkCard, editor: EditorViewModel) {
+    val clip = content.clip
+    val field = content.field
+    val index = content.index
+    val link = content.link
+    val pkg = content.pkg
+    val removable = content.removable
     // The sheet's own copy of the knobs, so a drag is not pulled back by replies still on their way.
     val values = remember(clip.id, field, index, link.id) {
         mutableStateMapOf<String, Double>().apply { putAll(link.params) }
@@ -251,6 +144,15 @@ private fun LinkCard(clip: Clip, field: String, index: Int, link: AppliedEffect,
         }
     }
 }
+
+private data class CatalogueLinkCard(
+    val clip: Clip,
+    val field: String,
+    val index: Int,
+    val link: AppliedEffect,
+    val pkg: PackageInfo?,
+    val removable: Boolean,
+)
 
 /** One knob: a slider for a number, a switch for a flag, chips for a choice. */
 @Composable

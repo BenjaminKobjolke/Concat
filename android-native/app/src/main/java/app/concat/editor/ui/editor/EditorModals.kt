@@ -21,7 +21,7 @@ internal data class EditorModalContext(
 @Composable
 internal fun EditorModals(context: EditorModalContext) {
     context.shelf?.let { shelf ->
-        CatalogueSheet(shelf, context.catalogue, context.model, context.catalogueAdjust, onDismiss = context.onCloseShelf)
+        CatalogueSheet(CatalogueSheetRequest(shelf, context.catalogueAdjust), context.catalogue, context.model, onDismiss = context.onCloseShelf)
     }
     if (context.exporting) ExportSheet(context.model, onDismiss = context.onCloseExport)
     if (context.renaming && context.view != null) {

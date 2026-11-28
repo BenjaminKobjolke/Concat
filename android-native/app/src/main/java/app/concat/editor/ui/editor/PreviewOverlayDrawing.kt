@@ -38,7 +38,7 @@ internal fun DrawScope.drawPreviewOverlay(state: OverlayDrawState) {
         it.placeable && state.position >= it.start && state.position < it.end
     } ?: return
     val placement = state.live?.takeIf { it.first == clip.id }?.second ?: Placement.of(clip)
-    val box = boxOf(state.view, clip, placement, frame, state.bounds)
+    val box = boxOf(OverlayBoxRequest(state.view, clip, placement, frame, state.bounds))
     val alpha = state.alpha
     val outline = Path().apply {
         val corners = box.corners

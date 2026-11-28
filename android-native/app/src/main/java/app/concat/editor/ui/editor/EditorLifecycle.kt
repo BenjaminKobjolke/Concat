@@ -22,6 +22,7 @@ import app.concat.editor.api.wasCancelled
 import app.concat.editor.concat
 import app.concat.editor.engine.PreviewBridge
 import app.concat.editor.export.ExportPreset
+import app.concat.editor.export.ExportStartRequest
 import app.concat.editor.ui.projects.ProjectArtifacts
 import java.io.File
 import java.io.IOException
@@ -52,7 +53,7 @@ fun EditorViewModel.export(preset: ExportPreset) {
             } catch (error: Exception) {
                 Log.w(EditorViewModel.TAG, "save before export failed", error)
             }
-            exports.start(path, view.name.ifBlank { "Concat" }, view.width, view.height, preset)
+            exports.start(ExportStartRequest(path, view.name.ifBlank { "Concat" }, view.width, view.height, preset))
                 .onFailure { say(it.message ?: "The export did not start.") }
         }
     }

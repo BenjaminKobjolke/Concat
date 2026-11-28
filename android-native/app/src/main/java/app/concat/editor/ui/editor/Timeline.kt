@@ -199,16 +199,24 @@ private fun layoutLanes(view: ProjectView, height: Float, scrollY: Float?, densi
             // Room for all: the block sits a little above the middle.
             y += (available - total) * 0.3f
         } else {
-            val probe = LaneLayout(rowsFrom(view, heights, y, gap, mainIndex), gap)
+            val probe = LaneLayout(rowsFrom(LaneRowsRequest(view, heights, y, gap, mainIndex)), gap)
             y -= scrollY ?: autoScroll(probe, height, density)
         }
-        LaneLayout(rowsFrom(view, heights, y, gap, mainIndex), gap)
+        LaneLayout(rowsFrom(LaneRowsRequest(view, heights, y, gap, mainIndex)), gap)
     }
 
-private fun rowsFrom(view: ProjectView, heights: List<Pair<Int, Float>>, startY: Float, gap: Float, mainIndex: Int): List<LaneRow> {
-    var y = startY
-    return heights.map { (index, h) ->
-        LaneRow(index, view.tracks[index].id, y, h, index == mainIndex).also { y += h + gap }
+private data class LaneRowsRequest(
+    val view: ProjectView,
+    val heights: List<Pair<Int, Float>>,
+    val startY: Float,
+    val gap: Float,
+    val mainIndex: Int,
+)
+
+private fun rowsFrom(request: LaneRowsRequest): List<LaneRow> {
+    var y = request.startY
+    return request.heights.map { (index, height) ->
+        LaneRow(index, request.view.tracks[index].id, y, height, index == request.mainIndex).also { y += height + request.gap }
     }
 }
 

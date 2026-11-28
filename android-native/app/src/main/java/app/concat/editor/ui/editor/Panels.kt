@@ -18,33 +18,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.concat.editor.api.AppliedEffect
 import app.concat.editor.api.Clip
 import app.concat.editor.api.ClipKind
@@ -159,72 +146,6 @@ fun colourOf(hex: String): Color = try {
     Color(android.graphics.Color.parseColor(hex))
 } catch (_: Exception) {
     Color.White
-}
-
-/**
- * A title's words and look: a new one (at the playhead) or [existing]
- * restyled. The words in a field that takes the keyboard at once.
- */
-@Composable
-fun TextPanel(
-    existing: Clip?,
-    onSave: (content: String, size: Double, colour: String, weight: Double) -> Unit,
-    onClose: () -> Unit,
-    caption: Boolean = false,
-) {
-    val style = existing?.text
-    var content by remember(existing?.id) { mutableStateOf(style?.optString("content") ?: "") }
-    // The document's size is a fraction of the frame's height.
-    var size by remember(existing?.id) { mutableFloatStateOf((style?.optDouble("fontSize", 0.07) ?: 0.07).toFloat()) }
-    var colour by remember(existing?.id) { mutableStateOf(style?.optString("color", "#ffffff") ?: "#ffffff") }
-    var weight by remember(existing?.id) { mutableStateOf(style?.optDouble("fontWeight", 700.0) ?: 700.0) }
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(existing?.id) { if (existing == null) focus.requestFocus() }
-    fun save() {
-        if (content.isNotBlank()) onSave(content.trim(), size.toDouble(), colour, weight)
-        onClose()
-    }
-
-    ToolPanel(if (existing == null) "Add text" else if (caption) "Caption" else "Text", onClose = onClose, options = ToolPanelOptions(onConfirm = ::save)) {
-        if (caption) PanelLabel("The words are this caption's; the look changes every caption.")
-        BasicTextField(
-            value = content,
-            onValueChange = { content = it },
-            textStyle = ConcatType.title.copy(color = ConcatColors.fg),
-            cursorBrush = SolidColor(ConcatColors.accent),
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            maxLines = 4,
-            modifier = Modifier.fillMaxWidth().focusRequester(focus),
-            decorationBox = { field ->
-                Box(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.md)).background(ConcatColors.launchField)
-                        .padding(horizontal = Spacing.md, vertical = 10.dp),
-                ) {
-                    if (content.isEmpty()) Text("Enter text", style = ConcatType.title, color = ConcatColors.fgDim)
-                    field()
-                }
-            },
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            ChoiceChip("Regular", selected = weight < 600, onClick = { weight = 400.0 })
-            ChoiceChip("Bold", selected = weight >= 600 && weight < 800, onClick = { weight = 700.0 })
-            ChoiceChip("Black", selected = weight >= 800, onClick = { weight = 900.0 })
-        }
-        ValueSlider("Size", size, 0.03f..0.2f, ValueSliderOptions({ "${(it * 100).toInt()}" }, { size = it }))
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            for (hex in TEXT_COLOURS) {
-                val picked = hex.equals(colour, ignoreCase = true)
-                Box(
-                    Modifier.size(32.dp).clip(CircleShape)
-                        .border(if (picked) 2.dp else 1.dp, if (picked) ConcatColors.accent else ConcatColors.lineStrong, CircleShape)
-                        .padding(if (picked) 4.dp else 0.dp)
-                        .clip(CircleShape)
-                        .background(colourOf(hex))
-                        .clickable { colour = hex },
-                )
-            }
-        }
-    }
 }
 
 /** The frame's shapes. */

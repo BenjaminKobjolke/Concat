@@ -113,9 +113,10 @@ class ConcatApi(val engine: EngineBridge) {
         return Peaks(floats("min"), floats("max"), reply.optDouble("perSecond", perSecond.toDouble()).toFloat())
     }
 
-    /** `preview.frame`: the true frame at [time], written to [output] as a PNG. */
-    suspend fun previewFrameTo(path: String, time: Double, output: String, width: Int, height: Int) = request(
-        method("preview.frame").put("path", path).put("time", time).put("output", output).put("width", width).put("height", height),
+    /** `preview.frame`: writes the requested frame as a PNG. */
+    suspend fun previewFrameTo(input: PreviewFrameRequest) = request(
+        method("preview.frame").put("path", input.path).put("time", input.time).put("output", input.output)
+            .put("width", input.width).put("height", input.height),
     )
 
     private fun decodePicture(reply: JSONObject): ByteArray {
@@ -132,15 +133,15 @@ class ConcatApi(val engine: EngineBridge) {
         view(method("edit.apply").put("path", path).put("command", command))
 
     /** Starts an export; the job's name. */
-    suspend fun exportRun(path: String, output: String, width: Int, height: Int, crf: Int, preset: String): String {
+    suspend fun exportRun(input: ExportRunRequest): String {
         val started = request(
             method("export.run")
-                .put("path", path)
-                .put("output", output)
-                .put("width", width)
-                .put("height", height)
-                .put("crf", crf)
-                .put("preset", preset)
+                .put("path", input.path)
+                .put("output", input.output)
+                .put("width", input.width)
+                .put("height", input.height)
+                .put("crf", input.crf)
+                .put("preset", input.preset)
                 .put("codec", "h264"),
         ) as JSONObject
         return started.getString("job")
@@ -201,22 +202,22 @@ class ConcatApi(val engine: EngineBridge) {
         return (request(request) as JSONObject).getString("job")
     }
 
-    /** Puts [segments] over [clipId] as titles, one undo step. */
-    suspend fun captionsPlace(path: String, clipId: String, segments: List<CaptionSegment>, placement: String, size: String) = view(
-        method("captions.place").put("path", path).put("clipId", clipId)
-            .put("segments", JSONArray().apply { segments.forEach { put(it.toJson()) } })
-            .put("placement", placement).put("size", size),
+    /** Puts the requested segments over their clip as titles, one undo step. */
+    suspend fun captionsPlace(input: CaptionsPlaceRequest) = view(
+        method("captions.place").put("path", input.path).put("clipId", input.clipId)
+            .put("segments", JSONArray().apply { input.segments.forEach { put(it.toJson()) } })
+            .put("placement", input.placement).put("size", input.size),
     )
 
     suspend fun captionsCancel(job: String) = request(method("captions.cancel").put("job", job))
 
     // -- reading aloud --
 
-    /** Starts reading [text] into a file in the project; the job's name. */
-    suspend fun speechSpeak(path: String, text: String, model: String, voice: Int, speed: Double): String =
+    /** Starts reading the requested text into a file in the project; the job's name. */
+    suspend fun speechSpeak(input: SpeechRequest): String =
         (request(
-            method("speech.speak").put("path", path).put("text", text).put("model", model)
-                .put("voice", voice).put("speed", speed),
+            method("speech.speak").put("path", input.path).put("text", input.text).put("model", input.model)
+                .put("voice", input.voice).put("speed", input.speed),
         ) as JSONObject).getString("job")
 
     suspend fun speechCancel(job: String) = request(method("speech.cancel").put("job", job))

@@ -29,6 +29,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.concat.editor.api.CaptionSegment
+import app.concat.editor.api.CaptionsPlaceRequest
 import app.concat.editor.api.Clip
 import app.concat.editor.api.JobTracker
 import app.concat.editor.api.errorMessage
@@ -158,7 +159,7 @@ class CaptionsViewModel(application: Application, private val path: String) : An
         val clip = now.clipId ?: return
         val segments = now.segments.filter { it.text.isNotBlank() }
         if (segments.isEmpty()) return
-        editor.edit("Captions") { api.captionsPlace(path, clip, segments, now.placement, now.size) }
+        editor.edit("Captions") { api.captionsPlace(CaptionsPlaceRequest(path, clip, segments, now.placement, now.size)) }
         _ui.update { it.copy(step = CaptionsStep.Setup, segments = emptyList()) }
         done()
     }

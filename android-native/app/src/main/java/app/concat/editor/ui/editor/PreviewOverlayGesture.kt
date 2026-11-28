@@ -49,6 +49,38 @@ internal data class OverlayGestureContext(
 )
 
 private data class Target(val clip: Clip, val grip: Grip)
+
+private data class SelectedGripRequest(
+    val chosen: Clip?,
+    val over: Clip?,
+    val point: Offset,
+    val frame: Size,
+    val handleReach: Float,
+)
+
+private data class CentreSnap(val centre: Offset, val guides: Pair<Boolean, Boolean>)
+private data class SnappedProgressRequest(
+    val step: TransformStep,
+    val previous: DragProgress,
+    val drag: DragStart,
+    val snapPx: Float,
+    val context: OverlayGestureContext,
+)
+private data class FinishGestureRequest(
+    val progress: DragProgress,
+    val drag: DragStart,
+    val touchSlop: Float,
+    val doubleTapTimeout: Long,
+    val context: OverlayGestureContext,
+)
+private data class OverlayHitTestRequest(
+    val view: ProjectView,
+    val position: Double,
+    val mainTrackId: String?,
+    val bounds: Map<String, ClipBounds>,
+    val point: Offset,
+    val frame: Size,
+)
 private data class DragStart(
     val down: PointerInputChange,
     val clip: Clip,
@@ -89,39 +121,33 @@ private suspend fun AwaitPointerEventScope.handleGesture(
     val clip = target.clip
     if (clip.id != context.selected.value) context.select(clip.id)
     val start = context.live.value?.takeIf { it.first == clip.id }?.second ?: Placement.of(clip)
-    val startBox = boxOf(context.view.value, clip, start, frame, context.bounds.value)
+    val startBox = boxOf(OverlayBoxRequest(context.view.value, clip, start, frame, context.bounds.value))
     val drag = DragStart(down, clip, target.grip, frame, start, startBox, down.position - startBox.anchor, context.view.value, context.bounds.value)
     context.moving.value = true
     val progress = trackGesture(drag, touchSlop, snapPx, context)
     context.moving.value = false
     context.guides.value = false to false
-    finishGesture(progress, drag, touchSlop, doubleTapTimeout, context)
+    finishGesture(FinishGestureRequest(progress, drag, touchSlop, doubleTapTimeout, context))
 }
 
 private fun chooseTarget(context: OverlayGestureContext, point: Offset, frame: Size, handleReach: Float): Target? {
     val view = context.view.value
     val chosen = view.clip(context.selected.value)?.takeIf { it.placeable && context.position.value >= it.start && context.position.value < it.end }
-    val hit = hitTest(view, context.position.value, context.mainTrackId.value, context.bounds.value, point, frame)
+    val hit = hitTest(OverlayHitTestRequest(view, context.position.value, context.mainTrackId.value, context.bounds.value, point, frame))
     val over = hit?.takeIf { it.id != chosen?.id && it.trackId != context.mainTrackId.value }
-    val grip = selectedGrip(context, chosen, over, point, frame, handleReach)
+    val grip = selectedGrip(context, SelectedGripRequest(chosen, over, point, frame, handleReach))
     if (grip != Grip.None && chosen != null) return Target(chosen, grip)
     return hit?.let { Target(it, Grip.Body) }
 }
 
-private fun selectedGrip(
-    context: OverlayGestureContext,
-    chosen: Clip?,
-    over: Clip?,
-    point: Offset,
-    frame: Size,
-    handleReach: Float,
-): Grip {
+private fun selectedGrip(context: OverlayGestureContext, request: SelectedGripRequest): Grip {
+    val chosen = request.chosen
     if (chosen == null) return Grip.None
     val placement = context.live.value?.takeIf { it.first == chosen.id }?.second ?: Placement.of(chosen)
-    val box = boxOf(context.view.value, chosen, placement, frame, context.bounds.value)
+    val box = boxOf(OverlayBoxRequest(context.view.value, chosen, placement, request.frame, context.bounds.value))
     return when {
-        box.corners.any { (it - point).getDistance() < handleReach } -> Grip.Corner
-        over == null && box.contains(point, 6f) -> Grip.Body
+        box.corners.any { (it - request.point).getDistance() < request.handleReach } -> Grip.Corner
+        request.over == null && box.contains(request.point, 6f) -> Grip.Body
         else -> Grip.None
     }
 }
@@ -148,7 +174,7 @@ private suspend fun AwaitPointerEventScope.trackGesture(
         val pressed = event.changes.filter { it.pressed }
         if (pressed.isEmpty()) break
         val step = transformStep(event, pressed, drag, progress)
-        progress = snappedProgress(step, progress, drag, snapPx, context)
+        progress = snappedProgress(SnappedProgressRequest(step, progress, drag, snapPx, context))
         if (progress.travelled > touchSlop) {
             context.live.value = drag.clip.id to progress.placement
             context.guides.value = progress.snapped
@@ -173,7 +199,7 @@ private fun transformStep(event: PointerEvent, pressed: List<PointerInputChange>
         val scale = (progress.placement.scale * event.calculateZoom()).coerceIn(0.05, 8.0)
         val rotation = progress.placement.rotation + event.calculateRotation()
         val pan = event.calculatePan()
-        val box = boxOf(drag.view, drag.clip, progress.placement, drag.frame, drag.bounds)
+        val box = boxOf(OverlayBoxRequest(drag.view, drag.clip, progress.placement, drag.frame, drag.bounds))
         return TransformStep(scale, rotation, box.anchor + pan, progress.travelled + pan.getDistance() + 20f, twoFingers)
     }
     val change = event.changes.firstOrNull { it.id == drag.down.id } ?: pressed.first()
@@ -186,28 +212,42 @@ private fun transformStep(event: PointerEvent, pressed: List<PointerInputChange>
     )
 }
 
-private fun snappedProgress(step: TransformStep, previous: DragProgress, drag: DragStart, snapPx: Float, context: OverlayGestureContext): DragProgress {
-    var centre = step.centre
-    val snapX = abs(centre.x - drag.frame.width / 2) < snapPx
-    val snapY = abs(centre.y - drag.frame.height / 2) < snapPx
-    if (snapX) centre = Offset(drag.frame.width / 2, centre.y)
-    if (snapY) centre = Offset(centre.x, drag.frame.height / 2)
-    var rotation = step.rotation
-    val square = (rotation / 90.0).roundToInt() * 90.0
-    if (abs(rotation - square) < 4.0 && (drag.grip == Grip.Corner || step.twoFingers)) rotation = square
-    val snapped = snapX to snapY
-    if ((snapX && !previous.snapped.first) || (snapY && !previous.snapped.second)) {
-        context.haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-    }
+private fun snappedProgress(request: SnappedProgressRequest): DragProgress {
+    val (step, previous, drag, snapPx, context) = request
+    val snap = snapCentre(step.centre, drag.frame, snapPx)
+    val rotation = snappedRotation(step, drag)
+    emitSnapFeedback(snap, previous, context)
     return DragProgress(
-        Placement(step.scale, ((centre.x - drag.frame.width / 2) / drag.frame.width).toDouble(), ((centre.y - drag.frame.height / 2) / drag.frame.height).toDouble(), rotation),
+        Placement(step.scale, ((snap.centre.x - drag.frame.width / 2) / drag.frame.width).toDouble(), ((snap.centre.y - drag.frame.height / 2) / drag.frame.height).toDouble(), rotation),
         step.travelled,
         step.twoFingers,
-        snapped,
+        snap.guides,
     )
 }
 
-private fun finishGesture(progress: DragProgress, drag: DragStart, touchSlop: Float, doubleTapTimeout: Long, context: OverlayGestureContext) {
+private fun snapCentre(centre: Offset, frame: Size, snapPx: Float): CentreSnap {
+    val snapX = abs(centre.x - frame.width / 2) < snapPx
+    val snapY = abs(centre.y - frame.height / 2) < snapPx
+    val snapped = Offset(if (snapX) frame.width / 2 else centre.x, if (snapY) frame.height / 2 else centre.y)
+    return CentreSnap(snapped, snapX to snapY)
+}
+
+private fun snappedRotation(step: TransformStep, drag: DragStart): Double {
+    var rotation = step.rotation
+    val square = (rotation / 90.0).roundToInt() * 90.0
+    if (abs(rotation - square) < 4.0 && (drag.grip == Grip.Corner || step.twoFingers)) rotation = square
+    return rotation
+}
+
+private fun emitSnapFeedback(snap: CentreSnap, previous: DragProgress, context: OverlayGestureContext) {
+    val (snapX, snapY) = snap.guides
+    if ((snapX && !previous.snapped.first) || (snapY && !previous.snapped.second)) {
+        context.haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
+}
+
+private fun finishGesture(request: FinishGestureRequest) {
+    val (progress, drag, touchSlop, doubleTapTimeout, context) = request
     if (progress.travelled > touchSlop) {
         context.live.value = drag.clip.id to progress.placement
         context.commit(drag.clip.id, progress.placement)
@@ -223,9 +263,10 @@ private fun finishGesture(progress: DragProgress, drag: DragStart, touchSlop: Fl
     }
 }
 
-private fun hitTest(view: ProjectView, position: Double, mainTrackId: String?, bounds: Map<String, ClipBounds>, point: Offset, frame: Size): Clip? {
+private fun hitTest(request: OverlayHitTestRequest): Clip? {
+    val (view, position, mainTrackId, bounds, point, frame) = request
     val order = view.tracks.map { it.id }
     return view.clips.filter { it.placeable && position >= it.start && position < it.end }
         .sortedWith(compareByDescending<Clip> { it.trackId != mainTrackId }.thenByDescending { it.kind == ClipKind.Text }.thenByDescending { order.indexOf(it.trackId) })
-        .firstOrNull { boxOf(view, it, Placement.of(it), frame, bounds).contains(point, 8f) }
+        .firstOrNull { boxOf(OverlayBoxRequest(view, it, Placement.of(it), frame, bounds)).contains(point, 8f) }
 }

@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import app.concat.editor.api.ApiEvent
 import app.concat.editor.api.ConcatApi
+import app.concat.editor.api.ExportRunRequest
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,8 @@ import kotlinx.coroutines.withContext
 
 /** A choice on the export sheet. */
 data class ExportPreset(val label: String, val shortSide: Int, val crf: Int, val preset: String)
+
+data class ExportStartRequest(val path: String, val title: String, val width: Int, val height: Int, val preset: ExportPreset)
 
 val EXPORT_PRESETS = listOf(
     ExportPreset("720p", 720, 23, "veryfast"),
@@ -78,17 +81,17 @@ class ExportManager(private val context: Context, private val api: ConcatApi, pr
         }
     }
 
-    /** Starts rendering [path] at [preset]; the frame keeps the timeline's shape. */
-    suspend fun start(path: String, title: String, width: Int, height: Int, preset: ExportPreset): Result<Unit> {
+    /** Starts rendering the requested project at its selected preset, keeping the timeline's shape. */
+    suspend fun start(input: ExportStartRequest): Result<Unit> {
         if (_state.value is ExportState.Running) return Result.failure(IllegalStateException("An export is already running."))
-        val (w, h) = sized(width, height, preset.shortSide)
+        val (w, h) = sized(input.width, input.height, input.preset.shortSide)
         val dir = File(context.cacheDir, "exports").apply { mkdirs() }
-        val safe = title.replace(Regex("[^A-Za-z0-9 _-]"), "_").ifBlank { "Concat" }
+        val safe = input.title.replace(Regex("[^A-Za-z0-9 _-]"), "_").ifBlank { "Concat" }
         val output = File(dir, "$safe-${System.currentTimeMillis()}.mp4")
         return try {
-            val job = api.exportRun(path, output.absolutePath, w, h, preset.crf, preset.preset)
+            val job = api.exportRun(ExportRunRequest(input.path, output.absolutePath, w, h, input.preset.crf, input.preset.preset))
             val caught = synchronized(this) {
-                _state.value = ExportState.Running(job, title, "starting", 0f)
+                _state.value = ExportState.Running(job, input.title, "starting", 0f)
                 early.remove(job)
             }
             caught?.let(::handle)

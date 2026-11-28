@@ -10,6 +10,27 @@ data class VideoSettings(val width: Int, val height: Int, val rateNum: Long, val
 
 data class FilmstripRequest(val file: String, val from: Double, val to: Double, val count: Int, val height: Int)
 
+data class PreviewFrameRequest(val path: String, val time: Double, val output: String, val width: Int, val height: Int)
+
+data class ExportRunRequest(
+    val path: String,
+    val output: String,
+    val width: Int,
+    val height: Int,
+    val crf: Int,
+    val preset: String,
+)
+
+data class CaptionsPlaceRequest(
+    val path: String,
+    val clipId: String,
+    val segments: List<CaptionSegment>,
+    val placement: String,
+    val size: String,
+)
+
+data class SpeechRequest(val path: String, val text: String, val model: String, val voice: Int, val speed: Double)
+
 data class ClipTransform(val scale: Double, val offsetX: Double, val offsetY: Double, val rotation: Double)
 
 data class TransitionClipRequest(

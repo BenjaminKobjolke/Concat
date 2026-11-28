@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.concat.editor.api.ProjectInfo
 import app.concat.editor.api.ProjectCreation
+import app.concat.editor.api.PreviewFrameRequest
 import app.concat.editor.concat
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -77,7 +78,9 @@ class ProjectsViewModel(application: Application) : AndroidViewModel(application
         val thumb = File(folder, ProjectArtifacts.THUMBNAIL)
         if (!thumb.exists() && app.api.engine.isFake) {
             try {
-                app.api.previewFrameTo(info.path, 0.5, thumb.absolutePath, 270, (270.0 * info.height / info.width.coerceAtLeast(1)).toInt())
+                app.api.previewFrameTo(
+                    PreviewFrameRequest(info.path, 0.5, thumb.absolutePath, 270, (270.0 * info.height / info.width.coerceAtLeast(1)).toInt()),
+                )
             } catch (_: Exception) {
             }
         }

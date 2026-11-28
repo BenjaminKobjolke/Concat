@@ -23,6 +23,12 @@ import app.concat.editor.ui.theme.Motion
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 data class PreviewOverlayContent(val view: ProjectView, val position: Double, val selected: String?, val mainTrackId: String?, val bounds: Map<String, ClipBounds>)
 
+data class PreviewOverlayActions(
+    val onSelect: (String?) -> Unit,
+    val onCommit: (clipId: String, placement: Placement) -> Unit,
+    val onEditText: (clipId: String) -> Unit,
+)
+
 /**
  * Editing on the preview: tap a title, picture or overlay to select it;
  * one finger drags it, two pinch and turn it, and a corner handle scales
@@ -31,9 +37,7 @@ data class PreviewOverlayContent(val view: ProjectView, val position: Double, va
 @Composable
 fun PreviewOverlay(
     content: PreviewOverlayContent,
-    onSelect: (String?) -> Unit,
-    onCommit: (clipId: String, placement: Placement) -> Unit,
-    onEditText: (clipId: String) -> Unit,
+    actions: PreviewOverlayActions,
     modifier: Modifier = Modifier,
 ) {
     val view = content.view
@@ -53,9 +57,9 @@ fun PreviewOverlay(
     val currentBounds = rememberUpdatedState(bounds)
     val currentPosition = rememberUpdatedState(position)
     val currentSelected = rememberUpdatedState(selected)
-    val select = rememberUpdatedState(onSelect)
-    val commit = rememberUpdatedState(onCommit)
-    val editText = rememberUpdatedState(onEditText)
+    val select = rememberUpdatedState(actions.onSelect)
+    val commit = rememberUpdatedState(actions.onCommit)
+    val editText = rememberUpdatedState(actions.onEditText)
     val rotateGlyph = rememberVectorPainter(ConcatIcons.Rotate)
     val appear = remember { Animatable(0f) }
 

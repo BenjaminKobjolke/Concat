@@ -54,12 +54,14 @@ internal fun EditorPreviewArea(context: EditorPreviewContext) {
                         context.mainTrackId,
                         ui.bounds,
                     ),
-                    onSelect = context.onSelect,
-                    onCommit = { id, p -> model.setTransform(id, p.scale, p.offsetX, p.offsetY, p.rotation) },
-                    onEditText = {
-                        model.pause()
-                        context.onInlineEdit(it)
-                    },
+                    actions = PreviewOverlayActions(
+                        onSelect = context.onSelect,
+                        onCommit = { id, p -> model.setTransform(id, p.scale, p.offsetX, p.offsetY, p.rotation) },
+                        onEditText = {
+                            model.pause()
+                            context.onInlineEdit(it)
+                        },
+                    ),
                 )
                 context.inlineEdit?.let { id ->
                     view.clip(id)?.let { clip ->
